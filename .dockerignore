@@ -1,0 +1,7 @@
+.git
+.idea
+.vscode
+.env
+**/target
+**/.pytest_cache
+**/__pycache__

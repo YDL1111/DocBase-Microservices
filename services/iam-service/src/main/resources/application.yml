@@ -1,0 +1,69 @@
+server:
+  port: ${SERVER_PORT:8081}
+  shutdown: graceful
+
+spring:
+  application:
+    name: iam-service
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  config:
+    import:
+      - optional:nacos:common.yaml?group=DOCBASE_GROUP&refreshEnabled=true
+      - optional:nacos:${spring.application.name}.yaml?group=DOCBASE_GROUP&refreshEnabled=true
+  cloud:
+    nacos:
+      server-addr: ${NACOS_SERVER_ADDR:nacos:8848}
+      username: ${NACOS_USERNAME:nacos}
+      password: ${NACOS_PASSWORD:change-me-nacos}
+      discovery:
+        namespace: ${NACOS_NAMESPACE:docbase-dev}
+        group: ${NACOS_GROUP:DOCBASE_GROUP}
+        ip-type: IPv4
+      config:
+        namespace: ${NACOS_NAMESPACE:docbase-dev}
+        group: ${NACOS_GROUP:DOCBASE_GROUP}
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:mysql}:${MYSQL_PORT:3306}/${IAM_DB_NAME:docbase_iam}?useUnicode=true&characterEncoding=utf8&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=Asia/Shanghai
+    username: ${IAM_DB_USER:docbase_iam}
+    password: ${IAM_DB_PASSWORD:change-me-iam-db}
+    hikari:
+      minimum-idle: 1
+      maximum-pool-size: 5
+      connection-timeout: 3000
+      validation-timeout: 1000
+      max-lifetime: 1800000
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-migration-naming: true
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      username: ${IAM_REDIS_USER:iam}
+      password: ${IAM_REDIS_PASSWORD:change-me-iam-redis}
+      timeout: 3s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: ${spring.application.name}
+    stage: foundation
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [${spring.application.name},traceId=%X{traceId:-}] %logger{36} - %msg%n"

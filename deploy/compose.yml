@@ -1,0 +1,561 @@
+name: docbase-ms
+
+services:
+  mysql:
+    image: mysql:8.4.10
+    profiles: ["infrastructure"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-mysql-root}
+      NACOS_DB_USER: ${NACOS_DB_USER:-nacos}
+      NACOS_DB_PASSWORD: ${NACOS_DB_PASSWORD:-change-me-nacos-db}
+      IAM_DB_USER: ${IAM_DB_USER:-docbase_iam}
+      IAM_DB_PASSWORD: ${IAM_DB_PASSWORD:-change-me-iam-db}
+      KNOWLEDGE_DB_USER: ${KNOWLEDGE_DB_USER:-docbase_knowledge}
+      KNOWLEDGE_DB_PASSWORD: ${KNOWLEDGE_DB_PASSWORD:-change-me-knowledge-db}
+      INGEST_DB_USER: ${INGEST_DB_USER:-docbase_ingest}
+      INGEST_DB_PASSWORD: ${INGEST_DB_PASSWORD:-change-me-ingest-db}
+      CHAT_DB_USER: ${CHAT_DB_USER:-docbase_chat}
+      CHAT_DB_PASSWORD: ${CHAT_DB_PASSWORD:-change-me-chat-db}
+      RAG_DB_USER: ${RAG_DB_USER:-docbase_rag}
+      RAG_DB_PASSWORD: ${RAG_DB_PASSWORD:-change-me-rag-db}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+08:00
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ../database/bootstrap:/docker-entrypoint-initdb.d:ro
+    expose:
+      - "3306"
+    networks:
+      - data-network
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.9-alpine
+    profiles: ["infrastructure"]
+    environment:
+      REDIS_ADMIN_PASSWORD: ${REDIS_ADMIN_PASSWORD:-change-me-redis-admin}
+      IAM_REDIS_PASSWORD: ${IAM_REDIS_PASSWORD:-change-me-iam-redis}
+      GATEWAY_REDIS_PASSWORD: ${GATEWAY_REDIS_PASSWORD:-change-me-gateway-redis}
+      CHAT_REDIS_PASSWORD: ${CHAT_REDIS_PASSWORD:-change-me-chat-redis}
+    command: ["/bin/sh", "/opt/docbase/entrypoint.sh"]
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./redis/entrypoint.sh:/opt/docbase/entrypoint.sh:ro
+    expose:
+      - "6379"
+    networks:
+      - data-network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --user admin --pass $$REDIS_ADMIN_PASSWORD ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:4.2.0-management-alpine
+    profiles: ["infrastructure"]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-docbase}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-change-me-rabbitmq}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/docbase}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    expose:
+      - "5672"
+    ports:
+      - "15672:15672"
+    networks:
+      - data-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    restart: unless-stopped
+
+  rabbitmq-init:
+    image: curlimages/curl:8.14.1
+    profiles: ["infrastructure"]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_MANAGEMENT_URL: http://rabbitmq:15672
+      RABBITMQ_USER: ${RABBITMQ_USER:-docbase}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-change-me-rabbitmq}
+    entrypoint: ["/bin/sh", "/opt/docbase/init-topology.sh"]
+    volumes:
+      - ./rabbitmq/init-topology.sh:/opt/docbase/init-topology.sh:ro
+    networks:
+      - data-network
+    restart: "no"
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    profiles: ["infrastructure"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-docbase-minio-root}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-minio-root}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    expose:
+      - "9000"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - data-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    profiles: ["infrastructure"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-docbase-minio-root}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-minio-root}
+      MINIO_APP_USER: ${MINIO_APP_USER:-docbase-app}
+      MINIO_APP_PASSWORD: ${MINIO_APP_PASSWORD:-change-me-minio-app}
+      MINIO_BUCKET: ${MINIO_BUCKET:-docbase-documents}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb --ignore-existing "local/$$MINIO_BUCKET" &&
+        mc admin user add local "$$MINIO_APP_USER" "$$MINIO_APP_PASSWORD" || true;
+        mc admin policy create local docbase-app-policy /policy/app-policy.json || true;
+        mc admin policy attach local docbase-app-policy --user "$$MINIO_APP_USER"
+    volumes:
+      - ./minio:/policy:ro
+    networks:
+      - data-network
+    restart: "no"
+
+  nacos:
+    image: nacos/nacos-server:v3.1.1
+    profiles: ["infrastructure"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MODE: standalone
+      PREFER_HOST_MODE: hostname
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_DB_NAME: nacos_config
+      MYSQL_SERVICE_USER: ${NACOS_DB_USER:-nacos}
+      MYSQL_SERVICE_PASSWORD: ${NACOS_DB_PASSWORD:-change-me-nacos-db}
+      MYSQL_SERVICE_DB_PARAM: characterEncoding=utf8&connectTimeout=3000&socketTimeout=10000&autoReconnect=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=Asia/Shanghai
+      NACOS_AUTH_ENABLE: "true"
+      NACOS_AUTH_ADMIN_ENABLE: "true"
+      NACOS_AUTH_CONSOLE_ENABLE: "true"
+      NACOS_AUTH_SYSTEM_TYPE: nacos
+      NACOS_CORE_API_COMPATIBILITY_CONSOLE_ENABLED: "true"
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-RG9jQmFzZS1sb2NhbC1kZXYtdG9rZW4tcGxhY2Vob2xkZXItMjAyNg==}
+      NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-docbase-server-key}
+      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-docbase-server-value}
+      JVM_XMS: 384m
+      JVM_XMX: 768m
+      JVM_XMN: 256m
+    expose:
+      - "9848"
+      - "9849"
+    ports:
+      - "8848:8848"
+      - "18080:8080"
+    volumes:
+      - nacos-logs:/home/nacos/logs
+    networks:
+      - data-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8848/nacos/v1/ns/operator/metrics | grep '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
+    restart: unless-stopped
+
+  nacos-init:
+    image: curlimages/curl:8.14.1
+    profiles: ["infrastructure"]
+    depends_on:
+      nacos:
+        condition: service_healthy
+    environment:
+      NACOS_BASE_URL: http://nacos:8848/nacos
+      NACOS_CONSOLE_URL: http://nacos:8080
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-change-me-nacos}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-docbase-dev}
+      NACOS_GROUP: ${NACOS_GROUP:-DOCBASE_GROUP}
+    entrypoint: ["/bin/sh", "/opt/docbase/init-config.sh"]
+    volumes:
+      - ./nacos/init-config.sh:/opt/docbase/init-config.sh:ro
+      - ./nacos/config-data:/config-data:ro
+    networks:
+      - data-network
+    restart: "no"
+
+  gateway-service:
+    image: docbase-ms/gateway-service:0.1.0
+    profiles: ["application"]
+    build:
+      context: ..
+      dockerfile: services/gateway-service/Dockerfile
+    depends_on:
+      nacos:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8080
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-change-me-nacos}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-docbase-dev}
+      NACOS_GROUP: ${NACOS_GROUP:-DOCBASE_GROUP}
+      CORS_ALLOWED_ORIGINS: http://localhost:3000
+    ports:
+      - "8080:8080"
+    networks:
+      - edge-network
+      - service-network
+      - data-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    restart: unless-stopped
+
+  iam-service:
+    image: docbase-ms/iam-service:0.1.0
+    profiles: ["application"]
+    build:
+      context: ..
+      dockerfile: services/iam-service/Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8081
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-change-me-nacos}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-docbase-dev}
+      NACOS_GROUP: ${NACOS_GROUP:-DOCBASE_GROUP}
+      MYSQL_HOST: mysql
+      IAM_DB_USER: ${IAM_DB_USER:-docbase_iam}
+      IAM_DB_PASSWORD: ${IAM_DB_PASSWORD:-change-me-iam-db}
+      REDIS_HOST: redis
+      IAM_REDIS_USER: iam
+      IAM_REDIS_PASSWORD: ${IAM_REDIS_PASSWORD:-change-me-iam-redis}
+    expose:
+      - "8081"
+    networks:
+      - service-network
+      - data-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+    restart: unless-stopped
+
+  knowledge-service:
+    image: docbase-ms/knowledge-service:0.1.0
+    profiles: ["application"]
+    build:
+      context: ..
+      dockerfile: services/knowledge-service/Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      nacos:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8082
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-change-me-nacos}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-docbase-dev}
+      NACOS_GROUP: ${NACOS_GROUP:-DOCBASE_GROUP}
+      MYSQL_HOST: mysql
+      KNOWLEDGE_DB_USER: ${KNOWLEDGE_DB_USER:-docbase_knowledge}
+      KNOWLEDGE_DB_PASSWORD: ${KNOWLEDGE_DB_PASSWORD:-change-me-knowledge-db}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-docbase}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-change-me-rabbitmq}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_APP_USER: ${MINIO_APP_USER:-docbase-app}
+      MINIO_APP_PASSWORD: ${MINIO_APP_PASSWORD:-change-me-minio-app}
+    expose:
+      - "8082"
+    networks:
+      - service-network
+      - data-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health | grep '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+    restart: unless-stopped
+
+  ingest-service:
+    image: docbase-ms/ingest-service:0.1.0
+    profiles: ["application"]
+    build:
+      context: ..
+      dockerfile: services/ingest-service/Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
+      nacos:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8083
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-change-me-nacos}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-docbase-dev}
+      NACOS_GROUP: ${NACOS_GROUP:-DOCBASE_GROUP}
+      MYSQL_HOST: mysql
+      INGEST_DB_USER: ${INGEST_DB_USER:-docbase_ingest}
+      INGEST_DB_PASSWORD: ${INGEST_DB_PASSWORD:-change-me-ingest-db}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-docbase}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-change-me-rabbitmq}
+      RAG_BASE_URL: http://rag-service:8090
+    expose:
+      - "8083"
+    networks:
+      - service-network
+      - data-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health | grep '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+    restart: unless-stopped
+
+  chat-service:
+    image: docbase-ms/chat-service:0.1.0
+    profiles: ["application"]
+    build:
+      context: ..
+      dockerfile: services/chat-service/Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8084
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-change-me-nacos}
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-docbase-dev}
+      NACOS_GROUP: ${NACOS_GROUP:-DOCBASE_GROUP}
+      MYSQL_HOST: mysql
+      CHAT_DB_USER: ${CHAT_DB_USER:-docbase_chat}
+      CHAT_DB_PASSWORD: ${CHAT_DB_PASSWORD:-change-me-chat-db}
+      RAG_BASE_URL: http://rag-service:8090
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-replace-with-local-secret}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-keep-existing-deepseek-model}
+    expose:
+      - "8084"
+    networks:
+      - service-network
+      - data-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health | grep '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+    restart: unless-stopped
+
+  rag-service:
+    image: docbase-ms/rag-service:0.1.0
+    profiles: ["application"]
+    build:
+      context: ..
+      dockerfile: rag-service/Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8090
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-replace-with-local-secret}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-keep-existing-deepseek-model}
+      EMBEDDING_MODEL: BAAI/bge-m3
+      RAG_INTERNAL_API_KEY: ${RAG_INTERNAL_API_KEY:-replace-with-local-internal-secret}
+      MYSQL_HOST: mysql
+      RAG_DB_USER: ${RAG_DB_USER:-docbase_rag}
+      RAG_DB_PASSWORD: ${RAG_DB_PASSWORD:-change-me-rag-db}
+      NACOS_SERVER_ADDR: nacos:8848
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE:-docbase-dev}
+      NACOS_GROUP: ${NACOS_GROUP:-DOCBASE_GROUP}
+    expose:
+      - "8090"
+    networks:
+      - service-network
+      - data-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  web:
+    image: docbase-ms/web:0.1.0
+    profiles: ["application"]
+    build:
+      context: ..
+      dockerfile: web/Dockerfile
+    depends_on:
+      gateway-service:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+    networks:
+      - edge-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  sentinel-dashboard:
+    image: bladex/sentinel-dashboard:1.8.8
+    profiles: ["governance"]
+    ports:
+      - "8858:8858"
+    networks:
+      - service-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8858/ >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - service-network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    profiles: ["observability"]
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-grafana}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3000"
+    networks:
+      - service-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  zipkin:
+    image: openzipkin/zipkin:3.5.1
+    profiles: ["observability"]
+    ports:
+      - "9411:9411"
+    networks:
+      - service-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9411/health | grep UP"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+networks:
+  edge-network:
+    driver: bridge
+  service-network:
+    driver: bridge
+  data-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
+  rabbitmq-data:
+  minio-data:
+  nacos-logs:
+  chroma-data:
+  prometheus-data:
+  grafana-data:

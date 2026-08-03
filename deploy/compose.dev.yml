@@ -1,0 +1,18 @@
+name: docbase-ms
+
+services:
+  gateway-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+  iam-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+  knowledge-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+  ingest-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+  chat-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: dev

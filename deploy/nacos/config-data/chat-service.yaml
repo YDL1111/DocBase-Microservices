@@ -1,0 +1,5 @@
+docbase:
+  chat:
+    rag-top-k: 5
+    model: keep-existing-deepseek-model
+    embedding-model: BAAI/bge-m3

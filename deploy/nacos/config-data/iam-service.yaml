@@ -1,0 +1,4 @@
+docbase:
+  iam:
+    token-key-prefix: "docbase:iam:token:"
+    permission-key-prefix: "docbase:iam:permission:"

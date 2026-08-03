@@ -1,0 +1,4 @@
+docbase:
+  ingest:
+    retry-delays: 30s,5m
+    consumer-prefetch: 1

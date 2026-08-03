@@ -1,0 +1,76 @@
+{
+  "exchanges": [
+    {
+      "name": "docbase.document.exchange",
+      "vhost": "/docbase",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "docbase.ingest.dlx",
+      "vhost": "/docbase",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "docbase.ingest.queue",
+      "vhost": "/docbase",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "docbase.ingest.retry.30s.queue",
+      "vhost": "/docbase",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 30000,
+        "x-dead-letter-exchange": "docbase.document.exchange"
+      }
+    },
+    {
+      "name": "docbase.ingest.retry.5m.queue",
+      "vhost": "/docbase",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 300000,
+        "x-dead-letter-exchange": "docbase.document.exchange"
+      }
+    },
+    {
+      "name": "docbase.ingest.dlq",
+      "vhost": "/docbase",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "docbase.document.exchange",
+      "vhost": "/docbase",
+      "destination": "docbase.ingest.queue",
+      "destination_type": "queue",
+      "routing_key": "document.*",
+      "arguments": {}
+    },
+    {
+      "source": "docbase.ingest.dlx",
+      "vhost": "/docbase",
+      "destination": "docbase.ingest.dlq",
+      "destination_type": "queue",
+      "routing_key": "failed",
+      "arguments": {}
+    }
+  ]
+}

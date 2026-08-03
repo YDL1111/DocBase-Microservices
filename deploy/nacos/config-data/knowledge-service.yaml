@@ -1,0 +1,4 @@
+docbase:
+  knowledge:
+    object-prefix: documents
+    outbox-publish-batch-size: 50

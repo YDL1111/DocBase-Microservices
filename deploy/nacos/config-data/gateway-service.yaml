@@ -1,0 +1,4 @@
+docbase:
+  gateway:
+    sse-response-timeout: -1
+    ai-rate-limit-qps: 5

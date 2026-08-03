@@ -1,0 +1,14 @@
+management:
+  endpoint:
+    health:
+      show-details: never
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+docbase:
+  environment: dev
+  nacos:
+    namespace: docbase-dev
+    group: DOCBASE_GROUP

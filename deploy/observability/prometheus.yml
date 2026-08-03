@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: gateway-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["gateway-service:8080"]
+  - job_name: iam-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["iam-service:8081"]
+  - job_name: knowledge-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["knowledge-service:8082"]
+  - job_name: ingest-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["ingest-service:8083"]
+  - job_name: chat-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["chat-service:8084"]
