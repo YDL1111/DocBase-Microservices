@@ -56,6 +56,20 @@ spring:
       - optional:nacos:common.yaml?group=DOCBASE_GROUP&refreshEnabled=true
       - optional:nacos:${spring.application.name}.yaml?group=DOCBASE_GROUP&refreshEnabled=true
 
+jwt:
+  public-key-path: ${JWT_PUBLIC_KEY_PATH:.local/keys/docbase-iam-public.pem}
+  issuer: ${IAM_JWT_ISSUER:docbase-iam}
+
+gateway:
+  security:
+    anonymous-paths:
+      - /actuator/health
+      - /actuator/info
+      - /actuator/prometheus
+      - /api/auth/ping
+      - /api/auth/login
+      - /api/auth/refresh
+
 management:
   endpoints:
     web:

@@ -18,6 +18,10 @@
             <artifactId>common-core</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.docbase</groupId>
+            <artifactId>common-security</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-gateway-server-webflux</artifactId>
         </dependency>

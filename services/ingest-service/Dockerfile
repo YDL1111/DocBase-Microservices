@@ -1,7 +1,9 @@
 FROM maven:3.9.11-eclipse-temurin-21-alpine AS build
 WORKDIR /workspace
 COPY . .
-RUN mvn -B -ntp -pl services/ingest-service -am package -DskipTests
+# Cache Maven dependencies to speed up repeated builds:
+#   docker build --mount=type=cache,target=/root/.m2 ...
+RUN --mount=type=cache,target=/root/.m2 mvn -B -ntp -pl services/ingest-service -am package -DskipTests
 
 FROM eclipse-temurin:21.0.7_6-jre-alpine-3.21
 RUN addgroup -S docbase && adduser -S docbase -G docbase

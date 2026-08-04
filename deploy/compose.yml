@@ -45,6 +45,8 @@ services:
       IAM_REDIS_PASSWORD: ${IAM_REDIS_PASSWORD:-change-me-iam-redis}
       GATEWAY_REDIS_PASSWORD: ${GATEWAY_REDIS_PASSWORD:-change-me-gateway-redis}
       CHAT_REDIS_PASSWORD: ${CHAT_REDIS_PASSWORD:-change-me-chat-redis}
+      KNOWLEDGE_REDIS_PASSWORD: ${KNOWLEDGE_REDIS_PASSWORD:-change-me-knowledge-redis}
+      INGEST_REDIS_PASSWORD: ${INGEST_REDIS_PASSWORD:-change-me-ingest-redis}
     command: ["/bin/sh", "/opt/docbase/entrypoint.sh"]
     volumes:
       - redis-data:/data
@@ -233,12 +235,16 @@ services:
       NACOS_NAMESPACE: ${NACOS_NAMESPACE:-docbase-dev}
       NACOS_GROUP: ${NACOS_GROUP:-DOCBASE_GROUP}
       CORS_ALLOWED_ORIGINS: http://localhost:3000
+      JWT_PUBLIC_KEY_PATH: /run/secrets/iam-jwt-public-key
+      IAM_JWT_ISSUER: ${IAM_JWT_ISSUER:-docbase-iam}
     ports:
       - "8080:8080"
     networks:
       - edge-network
       - service-network
       - data-network
+    secrets:
+      - iam-jwt-public-key
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep '\"status\":\"UP\"'"]
       interval: 10s
@@ -273,11 +279,19 @@ services:
       REDIS_HOST: redis
       IAM_REDIS_USER: iam
       IAM_REDIS_PASSWORD: ${IAM_REDIS_PASSWORD:-change-me-iam-redis}
+      IAM_JWT_PRIVATE_KEY_PATH: /run/secrets/iam-jwt-private-key
+      JWT_PUBLIC_KEY_PATH: /run/secrets/iam-jwt-public-key
+      IAM_JWT_ISSUER: ${IAM_JWT_ISSUER:-docbase-iam}
+      IAM_JWT_ACCESS_TTL: ${IAM_JWT_ACCESS_TTL:-30m}
+      IAM_JWT_REFRESH_TTL: ${IAM_JWT_REFRESH_TTL:-7d}
     expose:
       - "8081"
     networks:
       - service-network
       - data-network
+    secrets:
+      - iam-jwt-private-key
+      - iam-jwt-public-key
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep '\"status\":\"UP\"'"]
       interval: 10s
@@ -321,11 +335,19 @@ services:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_APP_USER: ${MINIO_APP_USER:-docbase-app}
       MINIO_APP_PASSWORD: ${MINIO_APP_PASSWORD:-change-me-minio-app}
+      JWT_PUBLIC_KEY_PATH: /run/secrets/iam-jwt-public-key
+      IAM_JWT_ISSUER: ${IAM_JWT_ISSUER:-docbase-iam}
+      JWT_FAIL_CLOSED: ${JWT_FAIL_CLOSED:-false}
+      REDIS_HOST: redis
+      KNOWLEDGE_REDIS_USER: knowledge
+      KNOWLEDGE_REDIS_PASSWORD: ${KNOWLEDGE_REDIS_PASSWORD:-change-me-knowledge-redis}
     expose:
       - "8082"
     networks:
       - service-network
       - data-network
+    secrets:
+      - iam-jwt-public-key
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health | grep '\"status\":\"UP\"'"]
       interval: 10s
@@ -363,11 +385,19 @@ services:
       RABBITMQ_USER: ${RABBITMQ_USER:-docbase}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-change-me-rabbitmq}
       RAG_BASE_URL: http://rag-service:8090
+      JWT_PUBLIC_KEY_PATH: /run/secrets/iam-jwt-public-key
+      IAM_JWT_ISSUER: ${IAM_JWT_ISSUER:-docbase-iam}
+      JWT_FAIL_CLOSED: ${JWT_FAIL_CLOSED:-false}
+      REDIS_HOST: redis
+      INGEST_REDIS_USER: ingest
+      INGEST_REDIS_PASSWORD: ${INGEST_REDIS_PASSWORD:-change-me-ingest-redis}
     expose:
       - "8083"
     networks:
       - service-network
       - data-network
+    secrets:
+      - iam-jwt-public-key
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health | grep '\"status\":\"UP\"'"]
       interval: 10s
@@ -400,11 +430,19 @@ services:
       RAG_BASE_URL: http://rag-service:8090
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-replace-with-local-secret}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-keep-existing-deepseek-model}
+      JWT_PUBLIC_KEY_PATH: /run/secrets/iam-jwt-public-key
+      IAM_JWT_ISSUER: ${IAM_JWT_ISSUER:-docbase-iam}
+      JWT_FAIL_CLOSED: ${JWT_FAIL_CLOSED:-false}
+      REDIS_HOST: redis
+      CHAT_REDIS_USER: chat
+      CHAT_REDIS_PASSWORD: ${CHAT_REDIS_PASSWORD:-change-me-chat-redis}
     expose:
       - "8084"
     networks:
       - service-network
       - data-network
+    secrets:
+      - iam-jwt-public-key
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health | grep '\"status\":\"UP\"'"]
       interval: 10s
@@ -559,3 +597,9 @@ volumes:
   chroma-data:
   prometheus-data:
   grafana-data:
+
+secrets:
+  iam-jwt-private-key:
+    file: ../.local/keys/docbase-iam-private.pem
+  iam-jwt-public-key:
+    file: ../.local/keys/docbase-iam-public.pem

@@ -1,0 +1,45 @@
+spring:
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+    config:
+      enabled: false
+  config:
+    import: []
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=MySQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  flyway:
+    enabled: false
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-h2.sql
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      - com.alibaba.cloud.nacos.NacosDiscoveryAutoConfiguration
+      - com.alibaba.cloud.nacos.NacosConfigAutoConfiguration
+      - com.alibaba.cloud.nacos.discovery.NacosDiscoveryClientAutoConfiguration
+      - com.alibaba.cloud.nacos.config.NacosConfigBootstrapConfiguration
+
+iam:
+  jwt:
+    private-key-path: ${IAM_JWT_PRIVATE_KEY_PATH:.local/keys/docbase-iam-private.pem}
+    issuer: docbase-iam
+    access-ttl: 30m
+    refresh-ttl: 7d
+  auth:
+    anonymous-paths:
+      - /actuator/health
+      - /actuator/info
+      - /actuator/prometheus
+      - /api/auth/ping
+      - /api/auth/login
+      - /api/auth/refresh

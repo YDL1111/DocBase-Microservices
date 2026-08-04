@@ -45,6 +45,30 @@ spring:
       password: ${IAM_REDIS_PASSWORD:change-me-iam-redis}
       timeout: 3s
 
+iam:
+  jwt:
+    private-key-path: ${IAM_JWT_PRIVATE_KEY_PATH:.local/keys/docbase-iam-private.pem}
+    issuer: ${IAM_JWT_ISSUER:docbase-iam}
+    access-ttl: ${IAM_JWT_ACCESS_TTL:30m}
+    refresh-ttl: ${IAM_JWT_REFRESH_TTL:7d}
+  auth:
+    anonymous-paths:
+      - /actuator/health
+      - /actuator/info
+      - /actuator/prometheus
+      - /api/auth/ping
+      - /api/auth/login
+      - /api/auth/refresh
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
 management:
   endpoints:
     web:

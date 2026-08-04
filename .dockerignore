@@ -2,6 +2,7 @@
 .idea
 .vscode
 .env
+.local/
 **/target
 **/.pytest_cache
 **/__pycache__

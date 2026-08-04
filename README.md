@@ -164,12 +164,14 @@ Gateway 使用宿主机 8080；Nacos 3 控制台映射到 18080，避免与 Gate
 - RAG、Web 占位与 PowerShell 运维脚本
 - Actuator、Prometheus 指标、统一响应/异常、Trace ID 日志
 
-当前安全配置以“可运行骨架”为目标，业务接口暂时 `permitAll`；非对称 JWT 签发、Resource
-Server 验签和细粒度授权在 IAM 业务迁移阶段实现。
+当前安全骨架已替换为真实 IAM 能力：非对称 RS256 JWT 签发/验签、Redis 登录态
+管理（Refresh Token 轮换、会话版本、密码修改失效）、BCrypt 密码编码、基于权限
+字符串的方法级授权。Gateway 使用公钥做初步认证，iam-service 使用私钥签发并独立
+验签。详见 [IAM API 文档](docs/api/iam.md) 和 [迁移文档](docs/migration/iam-migration.md)。
 
 ## 下一阶段迁移顺序
 
-1. IAM：迁移 `sys_*`、登录态、非对称 JWT 和权限缓存。
+1. **IAM（已完成）**：迁移 `sys_*`、登录态、非对称 JWT 和权限缓存。
 2. Knowledge：迁移分类、文档、版本、审核、ACL，并将文件迁至 MinIO。
 3. Ingest：实现 Outbox 发布、RabbitMQ 幂等消费、两级重试与 DLQ。
 4. RAG：迁移现有 FastAPI/Chroma/DeepSeek/bge-m3 链路并接入 Nacos。

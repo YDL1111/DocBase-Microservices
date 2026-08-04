@@ -1,0 +1,23 @@
+spring:
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+  config:
+    import: []
+
+jwt:
+  public-key-path: ${JWT_PUBLIC_KEY_PATH:.local/keys/docbase-iam-public.pem}
+  issuer: docbase-iam
+
+gateway:
+  security:
+    anonymous-paths:
+      - /actuator/health
+      - /actuator/info
+      - /actuator/prometheus
+      - /api/auth/ping
+      - /api/auth/login
+      - /api/auth/refresh

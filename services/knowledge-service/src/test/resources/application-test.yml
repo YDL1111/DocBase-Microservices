@@ -1,0 +1,34 @@
+spring:
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+    config:
+      enabled: false
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=MySQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  flyway:
+    enabled: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 1s
+  autoconfigure:
+    exclude:
+      - com.alibaba.cloud.nacos.NacosDiscoveryAutoConfiguration
+      - com.alibaba.cloud.nacos.NacosConfigAutoConfiguration
+      - com.alibaba.cloud.nacos.discovery.NacosDiscoveryClientAutoConfiguration
+      - com.alibaba.cloud.nacos.config.NacosConfigBootstrapConfiguration
+      - com.alibaba.cloud.nacos.registry.NacosServiceRegistryAutoConfiguration
+      - com.alibaba.cloud.nacos.NacosAutoServiceRegistration
+
+jwt:
+  public-key-path: ${JWT_PUBLIC_KEY_PATH:.local/keys/docbase-iam-public.pem}
+  issuer: ${IAM_JWT_ISSUER:docbase-iam}
+  fail-closed: ${JWT_FAIL_CLOSED:false}

@@ -1,1 +1,3 @@
 com.docbase.common.security.ServletSecurityAutoConfiguration
+com.docbase.common.security.CommonSecurityAutoConfiguration
+com.docbase.common.security.ServletJwtSecurityAutoConfiguration
