@@ -169,10 +169,14 @@ Gateway 使用宿主机 8080；Nacos 3 控制台映射到 18080，避免与 Gate
 字符串的方法级授权。Gateway 使用公钥做初步认证，iam-service 使用私钥签发并独立
 验签。详见 [IAM API 文档](docs/api/iam.md) 和 [迁移文档](docs/migration/iam-migration.md)。
 
+**Knowledge 业务迁移已完成**：知识库管理、目录树、文档元数据、成员管理、权限控制、
+Outbox 事件。详见 [Knowledge API 文档](docs/api/knowledge.md) 和
+[迁移文档](docs/migration/knowledge-migration.md)。
+
 ## 下一阶段迁移顺序
 
 1. **IAM（已完成）**：迁移 `sys_*`、登录态、非对称 JWT 和权限缓存。
-2. Knowledge：迁移分类、文档、版本、审核、ACL，并将文件迁至 MinIO。
+2. **Knowledge（已完成）**：迁移知识库、目录、文档元数据、成员、权限和 Outbox。
 3. Ingest：实现 Outbox 发布、RabbitMQ 幂等消费、两级重试与 DLQ。
 4. RAG：迁移现有 FastAPI/Chroma/DeepSeek/bge-m3 链路并接入 Nacos。
 5. Chat：迁移会话、`visible_doc_ids` 权限下沉与 WebClient SSE。

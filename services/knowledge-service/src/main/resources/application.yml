@@ -55,6 +55,15 @@ spring:
     template:
       mandatory: true
 
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
 jwt:
   public-key-path: ${JWT_PUBLIC_KEY_PATH:.local/keys/docbase-iam-public.pem}
   issuer: ${IAM_JWT_ISSUER:docbase-iam}

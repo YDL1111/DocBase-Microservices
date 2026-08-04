@@ -14,6 +14,10 @@ spring:
     driver-class-name: org.h2.Driver
   flyway:
     enabled: false
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-h2.sql
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -32,3 +36,13 @@ jwt:
   public-key-path: ${JWT_PUBLIC_KEY_PATH:.local/keys/docbase-iam-public.pem}
   issuer: ${IAM_JWT_ISSUER:docbase-iam}
   fail-closed: ${JWT_FAIL_CLOSED:false}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+      id-type: auto
