@@ -1,16 +1,16 @@
-package com.docbase.knowledge.event;
+package com.docbase.ingest.event;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
- * Outbox event entity. Maps to the event_outbox table.
+ * Ingest service outbox entity for publishing status feedback events.
  */
-@TableName("event_outbox")
-public class OutboxEntity {
+@TableName("ingest_outbox")
+public class IngestOutboxEntity {
 
     @TableId(type = IdType.INPUT)
     private String eventId;
@@ -21,12 +21,12 @@ public class OutboxEntity {
     private String status;
     private Integer retryCount;
     private String lastError;
-    private Instant nextRetryAt;
+    private LocalDateTime nextRetryAt;
     private String publishedBy;
     private Integer schemaVersion;
-    private Instant createdAt;
-    private Instant publishedAt;
-    private Instant claimedAt;
+    private LocalDateTime createdAt;
+    private LocalDateTime publishedAt;
+    private LocalDateTime claimedAt;
 
     public String getEventId() { return eventId; }
     public void setEventId(String eventId) { this.eventId = eventId; }
@@ -44,16 +44,16 @@ public class OutboxEntity {
     public void setRetryCount(Integer retryCount) { this.retryCount = retryCount; }
     public String getLastError() { return lastError; }
     public void setLastError(String lastError) { this.lastError = lastError; }
-    public Instant getNextRetryAt() { return nextRetryAt; }
-    public void setNextRetryAt(Instant nextRetryAt) { this.nextRetryAt = nextRetryAt; }
+    public LocalDateTime getNextRetryAt() { return nextRetryAt; }
+    public void setNextRetryAt(LocalDateTime nextRetryAt) { this.nextRetryAt = nextRetryAt; }
     public String getPublishedBy() { return publishedBy; }
     public void setPublishedBy(String publishedBy) { this.publishedBy = publishedBy; }
     public Integer getSchemaVersion() { return schemaVersion; }
     public void setSchemaVersion(Integer schemaVersion) { this.schemaVersion = schemaVersion; }
-    public Instant getCreatedAt() { return createdAt; }
-    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
-    public Instant getPublishedAt() { return publishedAt; }
-    public void setPublishedAt(Instant publishedAt) { this.publishedAt = publishedAt; }
-    public Instant getClaimedAt() { return claimedAt; }
-    public void setClaimedAt(Instant claimedAt) { this.claimedAt = claimedAt; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public LocalDateTime getPublishedAt() { return publishedAt; }
+    public void setPublishedAt(LocalDateTime publishedAt) { this.publishedAt = publishedAt; }
+    public LocalDateTime getClaimedAt() { return claimedAt; }
+    public void setClaimedAt(LocalDateTime claimedAt) { this.claimedAt = claimedAt; }
 }

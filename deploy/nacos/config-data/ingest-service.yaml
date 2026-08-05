@@ -1,4 +1,13 @@
 docbase:
   ingest:
-    retry-delays: 30s,5m
+    poll-interval-ms: 5000
+    retry-poll-interval-ms: 30000
+    batch-size: 10
+    max-retries: 3
+    retry-delays: PT30S,PT5M,PT30M
     consumer-prefetch: 1
+    outbox:
+      poll-interval-ms: 5000
+      poll-batch-size: 10
+      max-retries: 3
+      retry-delays: PT30S,PT5M,PT30M

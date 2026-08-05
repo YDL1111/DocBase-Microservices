@@ -35,7 +35,7 @@ class OutboxTransactionTest {
         Long baseId = knowledgeBaseService.create(base, 1L);
 
         // Verify outbox event was written
-        List<OutboxEntity> pendingEvents = outboxService.findPendingEvents(10);
+        List<OutboxEntity> pendingEvents = outboxService.findEventsReadyForPublish(10);
         assertThat(pendingEvents).isNotEmpty();
 
         // Find the event for this base
@@ -56,16 +56,20 @@ class OutboxTransactionTest {
         Long baseId = knowledgeBaseService.create(base, 1L);
 
         // Clear pending events from create
-        List<OutboxEntity> events = outboxService.findPendingEvents(100);
+        List<OutboxEntity> events = outboxService.findEventsReadyForPublish(100);
         for (OutboxEntity e : events) {
-            outboxService.markPublished(e.getEventId());
+            // Claim then mark as published
+            boolean claimed = outboxService.claimForPublishing(e.getEventId());
+            if (claimed) {
+                outboxService.markPublished(e.getEventId());
+            }
         }
 
         // Delete the base
         knowledgeBaseService.delete(baseId, 1L, false);
 
         // Verify delete event was written
-        List<OutboxEntity> pendingEvents = outboxService.findPendingEvents(10);
+        List<OutboxEntity> pendingEvents = outboxService.findEventsReadyForPublish(10);
         OutboxEntity deleteEvent = pendingEvents.stream()
                 .filter(e -> e.getEventType().equals(KnowledgeEvent.BASE_DELETED))
                 .findFirst()
@@ -92,11 +96,15 @@ class OutboxTransactionTest {
         );
         outboxService.writeEvent(event);
 
-        // Mark as published
+        // Claim for publishing (PENDING -> PUBLISHING)
+        boolean claimed = outboxService.claimForPublishing(event.eventId().toString());
+        assertThat(claimed).isTrue();
+
+        // Mark as published (PUBLISHING -> PUBLISHED)
         outboxService.markPublished(event.eventId().toString());
 
         // Verify it's no longer pending
-        List<OutboxEntity> pendingEvents = outboxService.findPendingEvents(10);
+        List<OutboxEntity> pendingEvents = outboxService.findEventsReadyForPublish(10);
         boolean stillPending = pendingEvents.stream()
                 .anyMatch(e -> e.getEventId().equals(event.eventId().toString()));
         assertThat(stillPending).isFalse();

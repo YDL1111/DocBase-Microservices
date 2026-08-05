@@ -75,6 +75,11 @@ docbase:
     access-key: ${MINIO_APP_USER:docbase-app}
     secret-key: ${MINIO_APP_PASSWORD:change-me-minio-app}
     bucket: ${MINIO_BUCKET:docbase-documents}
+  outbox:
+    poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:5000}
+    poll-batch-size: ${OUTBOX_POLL_BATCH_SIZE:10}
+    max-retries: ${OUTBOX_MAX_RETRIES:3}
+    retry-delays: ${OUTBOX_RETRY_DELAYS:PT30S,PT5M,PT30M}
 
 management:
   endpoints:

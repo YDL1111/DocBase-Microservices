@@ -177,7 +177,7 @@ Outbox 事件。详见 [Knowledge API 文档](docs/api/knowledge.md) 和
 
 1. **IAM（已完成）**：迁移 `sys_*`、登录态、非对称 JWT 和权限缓存。
 2. **Knowledge（已完成）**：迁移知识库、目录、文档元数据、成员、权限和 Outbox。
-3. Ingest：实现 Outbox 发布、RabbitMQ 幂等消费、两级重试与 DLQ。
+3. **Ingest（已完成）**：实现 Outbox 发布、RabbitMQ 幂等消费、任务状态机、状态反馈事件。
 4. RAG：迁移现有 FastAPI/Chroma/DeepSeek/bge-m3 链路并接入 Nacos。
 5. Chat：迁移会话、`visible_doc_ids` 权限下沉与 WebClient SSE。
 6. 前端与 Agent：复用 Vue 页面，最后迁移管理员 Agent 工具。

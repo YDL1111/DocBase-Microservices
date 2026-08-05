@@ -107,7 +107,12 @@ CREATE TABLE IF NOT EXISTS event_outbox (
     event_type      VARCHAR(128) NOT NULL,
     payload         CLOB         NOT NULL,
     status          VARCHAR(24)  NOT NULL DEFAULT 'PENDING',
+    retry_count     INT          NOT NULL DEFAULT 0,
+    last_error      VARCHAR(512)          ,
+    next_retry_at   TIMESTAMP             ,
+    published_by    VARCHAR(128)          ,
+    schema_version  INT          NOT NULL DEFAULT 1,
     created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    published_at    TIMESTAMP             ,
-    retry_count     INT          NOT NULL DEFAULT 0
+    published_at    TIMESTAMP            ,
+    claimed_at      TIMESTAMP
 );

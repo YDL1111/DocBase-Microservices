@@ -57,6 +57,11 @@ spring:
     username: ${RABBITMQ_USER:docbase}
     password: ${RABBITMQ_PASSWORD:change-me-rabbitmq}
     virtual-host: ${RABBITMQ_VHOST:/docbase}
+    # Enable publisher confirms and returns for reliable message delivery
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
     listener:
       simple:
         acknowledge-mode: manual
@@ -72,6 +77,12 @@ jwt:
 docbase:
   rag:
     base-url: ${RAG_BASE_URL:http://rag-service:8090}
+  ingest:
+    poll-interval-ms: ${INGEST_POLL_INTERVAL_MS:5000}
+    retry-poll-interval-ms: ${INGEST_RETRY_POLL_INTERVAL_MS:30000}
+    batch-size: ${INGEST_BATCH_SIZE:10}
+    max-retries: ${INGEST_MAX_RETRIES:3}
+    retry-delays: ${INGEST_RETRY_DELAYS:PT30S,PT5M,PT30M}
 
 management:
   endpoints:
