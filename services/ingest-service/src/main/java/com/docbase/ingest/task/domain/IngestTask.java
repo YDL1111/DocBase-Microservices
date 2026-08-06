@@ -18,7 +18,13 @@ public class IngestTask {
 
     private Long documentId;
 
+    private Long versionId;
+
     private String objectKey;
+
+    private String fileName;
+
+    private String contentType;
 
     private String taskType;
 
@@ -54,8 +60,14 @@ public class IngestTask {
     public void setKnowledgeBaseId(Long knowledgeBaseId) { this.knowledgeBaseId = knowledgeBaseId; }
     public Long getDocumentId() { return documentId; }
     public void setDocumentId(Long documentId) { this.documentId = documentId; }
+    public Long getVersionId() { return versionId; }
+    public void setVersionId(Long versionId) { this.versionId = versionId; }
     public String getObjectKey() { return objectKey; }
     public void setObjectKey(String objectKey) { this.objectKey = objectKey; }
+    public String getFileName() { return fileName; }
+    public void setFileName(String fileName) { this.fileName = fileName; }
+    public String getContentType() { return contentType; }
+    public void setContentType(String contentType) { this.contentType = contentType; }
     public String getTaskType() { return taskType; }
     public void setTaskType(String taskType) { this.taskType = taskType; }
     public String getStatus() { return status; }

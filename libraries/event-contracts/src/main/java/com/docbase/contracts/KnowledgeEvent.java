@@ -25,10 +25,14 @@ public record KnowledgeEvent(
         String aggregateId,
         Long knowledgeBaseId,
         Long documentId,
+        Long versionId,
         String objectKey,
+        String fileName,
+        String contentType,
         Long operatorId,
         int schemaVersion,
-        Instant occurredAt
+        Instant occurredAt,
+        String traceId
 ) {
     /** Current schema version for knowledge events. */
     public static final int CURRENT_SCHEMA_VERSION = 1;
@@ -39,4 +43,19 @@ public record KnowledgeEvent(
     public static final String DOCUMENT_REGISTERED = "knowledge.document.registered";
     public static final String DOCUMENT_DELETED = "knowledge.document.deleted";
     public static final String REINGEST_REQUESTED = "knowledge.document.reingest-requested";
+
+    /**
+     * Compact constructor with defaults for backward compatibility.
+     */
+    public KnowledgeEvent {
+        if (versionId == null) {
+            versionId = 1L;
+        }
+        if (fileName == null) {
+            fileName = "";
+        }
+        if (contentType == null) {
+            contentType = "";
+        }
+    }
 }

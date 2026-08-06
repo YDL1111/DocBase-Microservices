@@ -20,7 +20,7 @@
 ```text
 services/       5 个独立 Spring Boot 应用
 libraries/      纯技术公共库与事件契约，不含共享业务模型
-rag-service/    Python RAG 容器接入占位
+rag-service/    Python FastAPI RAG 服务（文档解析、Embedding、Chroma、检索、SSE）
 web/            Vue 迁移前的 Nginx 占位
 deploy/         Compose、Nacos、Redis、RabbitMQ、MinIO、治理与观测配置
 database/       MySQL 多 Schema、独立账号和 Nacos 官方表结构初始化

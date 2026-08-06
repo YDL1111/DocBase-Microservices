@@ -460,31 +460,52 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
       nacos:
         condition: service_healthy
     environment:
-      SERVER_PORT: 8090
+      PORT: 8090
+      DATABASE_URL: mysql+pymysql://${RAG_DB_USER:-docbase_rag}:${RAG_DB_PASSWORD:-change-me-rag-db}@mysql:3306/docbase_rag
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-docbase}:${RABBITMQ_PASSWORD:-change-me-rabbitmq}@rabbitmq:5672${RABBITMQ_VHOST:-/docbase}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_APP_USER:-docbase-app}
+      MINIO_SECRET_KEY: ${MINIO_APP_PASSWORD:-change-me-minio-app}
+      MINIO_BUCKET: ${MINIO_BUCKET:-docbase-documents}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-replace-with-local-secret}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-keep-existing-deepseek-model}
-      EMBEDDING_MODEL: BAAI/bge-m3
-      RAG_INTERNAL_API_KEY: ${RAG_INTERNAL_API_KEY:-replace-with-local-internal-secret}
-      MYSQL_HOST: mysql
-      RAG_DB_USER: ${RAG_DB_USER:-docbase_rag}
-      RAG_DB_PASSWORD: ${RAG_DB_PASSWORD:-change-me-rag-db}
-      NACOS_SERVER_ADDR: nacos:8848
+      HF_EMBEDDING_MODEL: BAAI/bge-m3
+      HF_EMBEDDING_DEVICE: cpu
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HOME: /cache/huggingface
+      CHROMA_PERSIST_DIR: /data/chroma
+      INTERNAL_API_KEY: ${RAG_INTERNAL_API_KEY:-replace-me-internal-key}
+      NACOS_SERVER: nacos:8848
       NACOS_NAMESPACE: ${NACOS_NAMESPACE:-docbase-dev}
       NACOS_GROUP: ${NACOS_GROUP:-DOCBASE_GROUP}
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-change-me-nacos}
+    volumes:
+      - chroma-data:/data/chroma
+      - ${HF_HOME:-/tmp/huggingface}:/cache/huggingface:ro
     expose:
       - "8090"
     networks:
       - service-network
       - data-network
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health', timeout=3)"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health/live', timeout=3)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
+    # Run as non-root user (UID 10001 matching Dockerfile)
+    user: "10001"
 
   web:
     image: docbase-ms/web:0.1.0

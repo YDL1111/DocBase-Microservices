@@ -122,17 +122,14 @@ public class KnowledgeBaseService {
         knowledgeMemberMapper.insert(member);
 
         // Write outbox event
-        outboxService.writeEvent(new KnowledgeEvent(
-                UUID.randomUUID(),
+        outboxService.writeEvent(createKnowledgeEvent(
                 KnowledgeEvent.BASE_CREATED,
                 "knowledge_base",
                 base.getId().toString(),
                 base.getId(),
                 null,
                 null,
-                userId,
-                KnowledgeEvent.CURRENT_SCHEMA_VERSION,
-                Instant.now()
+                userId
         ));
 
         return base.getId();
@@ -179,18 +176,39 @@ public class KnowledgeBaseService {
         softDeleteKnowledgeBaseCascade(id, userId);
 
         // Write outbox event
-        outboxService.writeEvent(new KnowledgeEvent(
-                UUID.randomUUID(),
+        outboxService.writeEvent(createKnowledgeEvent(
                 KnowledgeEvent.BASE_DELETED,
                 "knowledge_base",
                 id.toString(),
                 id,
                 null,
                 null,
+                userId
+        ));
+    }
+
+    /**
+     * Helper to create a KnowledgeEvent with all required fields.
+     */
+    private KnowledgeEvent createKnowledgeEvent(
+            String eventType, String aggregateType, String aggregateId,
+            Long knowledgeBaseId, Long documentId, String objectKey, Long userId) {
+        return new KnowledgeEvent(
+                UUID.randomUUID(),
+                eventType,
+                aggregateType,
+                aggregateId,
+                knowledgeBaseId,
+                documentId,
+                1L,  // versionId
+                objectKey,
+                "",  // fileName
+                "",  // contentType
                 userId,
                 KnowledgeEvent.CURRENT_SCHEMA_VERSION,
-                Instant.now()
-        ));
+                Instant.now(),
+                null  // traceId
+        );
     }
 
     /**

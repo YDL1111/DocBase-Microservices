@@ -67,6 +67,17 @@ public class KnowledgeEventDeserializer {
             Instant occurredAt = node.has("occurredAt") && !node.get("occurredAt").isNull() ?
                     Instant.parse(node.get("occurredAt").asText()) : Instant.now();
 
+            // Parse optional fields with defaults
+            Long versionId = node.has("versionId") && !node.get("versionId").isNull() ?
+                    node.get("versionId").asLong() : 1L;
+            // objectKey already defined above for document events
+            String fileName = node.has("fileName") && !node.get("fileName").isNull() ?
+                    node.get("fileName").asText() : "";
+            String contentType = node.has("contentType") && !node.get("contentType").isNull() ?
+                    node.get("contentType").asText() : "";
+            String traceId = node.has("traceId") && !node.get("traceId").isNull() ?
+                    node.get("traceId").asText() : null;
+
             return new KnowledgeEvent(
                     UUID.fromString(eventId),
                     eventType,
@@ -74,10 +85,14 @@ public class KnowledgeEventDeserializer {
                     aggregateId,
                     knowledgeBaseId,
                     documentId,
+                    versionId,
                     objectKey,
+                    fileName,
+                    contentType,
                     operatorId,
                     schemaVersion,
-                    occurredAt
+                    occurredAt,
+                    traceId
             );
 
         } catch (EventValidationException e) {

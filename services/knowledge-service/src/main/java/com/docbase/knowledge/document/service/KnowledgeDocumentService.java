@@ -96,20 +96,44 @@ public class KnowledgeDocumentService {
         documentMapper.insert(document);
 
         // Write outbox event
-        outboxService.writeEvent(new KnowledgeEvent(
-                UUID.randomUUID(),
+        outboxService.writeEvent(createKnowledgeEvent(
                 KnowledgeEvent.DOCUMENT_REGISTERED,
                 "document",
                 document.getId().toString(),
                 knowledgeBaseId,
                 document.getId(),
                 document.getObjectKey(),
-                userId,
-                KnowledgeEvent.CURRENT_SCHEMA_VERSION,
-                Instant.now()
+                document.getOriginalFilename(),
+                document.getContentType(),
+                userId
         ));
 
         return document.getId();
+    }
+
+    /**
+     * Helper to create a KnowledgeEvent with all required fields.
+     */
+    private KnowledgeEvent createKnowledgeEvent(
+            String eventType, String aggregateType, String aggregateId,
+            Long knowledgeBaseId, Long documentId, String objectKey,
+            String fileName, String contentType, Long userId) {
+        return new KnowledgeEvent(
+                UUID.randomUUID(),
+                eventType,
+                aggregateType,
+                aggregateId,
+                knowledgeBaseId,
+                documentId,
+                1L,  // versionId
+                objectKey,
+                fileName != null ? fileName : "",
+                contentType != null ? contentType : "",
+                userId,
+                KnowledgeEvent.CURRENT_SCHEMA_VERSION,
+                Instant.now(),
+                null  // traceId
+        );
     }
 
     /**
@@ -167,17 +191,16 @@ public class KnowledgeDocumentService {
         documentAclMapper.softDeleteByDocumentId(documentId);
 
         // Write outbox event
-        outboxService.writeEvent(new KnowledgeEvent(
-                UUID.randomUUID(),
+        outboxService.writeEvent(createKnowledgeEvent(
                 KnowledgeEvent.DOCUMENT_DELETED,
                 "document",
                 documentId.toString(),
                 existing.getKnowledgeBaseId(),
                 documentId,
                 existing.getObjectKey(),
-                userId,
-                KnowledgeEvent.CURRENT_SCHEMA_VERSION,
-                Instant.now()
+                existing.getOriginalFilename(),
+                existing.getContentType(),
+                userId
         ));
     }
 

@@ -111,28 +111,20 @@ public class IngestTaskProcessor {
     private void processImportTask(IngestTask task) {
         log.info("Processing import task: taskId={}, documentId={}", task.getId(), task.getDocumentId());
 
-        // TODO: Implement actual RAG integration
-        // For now, mark as FAILED with a clear message indicating RAG is not yet integrated
-        // This prevents false "success" status
-        throw new UnsupportedOperationException(
-                "RAG integration not yet implemented. Task cannot be completed: " + task.getId());
+        // Publish RAG ingest request event to outbox
+        // The task will transition to DISPATCHED after successful publish
+        taskService.publishRagIngestRequest(task);
     }
 
     /**
      * Processes a delete task.
-     *
-     * NOTE: This is a placeholder for RAG integration. In future, this would call RAG to delete vectors.
-     *
-     * For now, the task stays in PROCESSING state until RAG integration is complete.
-     * We do NOT fabricate SUCCEEDED status without actual RAG processing.
+     * Publishes a RAG delete request event to the outbox.
      */
     private void processDeleteTask(IngestTask task) {
         log.info("Processing delete task: taskId={}, documentId={}", task.getId(), task.getDocumentId());
 
-        // TODO: Implement actual RAG integration
-        // For now, mark as FAILED with a clear message indicating RAG is not yet integrated
-        throw new UnsupportedOperationException(
-                "RAG integration not yet implemented. Delete task cannot be completed: " + task.getId());
+        // Publish RAG delete request event to outbox
+        taskService.publishRagDeleteRequest(task);
     }
 
     /**

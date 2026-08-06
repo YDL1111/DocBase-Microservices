@@ -6,13 +6,18 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.docbase.common.core.BusinessException;
 import com.docbase.contracts.IngestEvent;
 import com.docbase.contracts.KnowledgeEvent;
+import com.docbase.contracts.RagEvent;
 import com.docbase.ingest.event.IngestEventPublisher;
 import com.docbase.ingest.task.domain.ConsumedEvent;
 import com.docbase.ingest.task.domain.IngestTask;
+import com.docbase.ingest.task.domain.RagOutboxEntity;
 import com.docbase.ingest.task.mapper.ConsumedEventMapper;
 import com.docbase.ingest.task.mapper.IngestTaskMapper;
+import com.docbase.ingest.task.mapper.RagOutboxMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,14 +37,23 @@ public class IngestTaskService {
 
     private final IngestTaskMapper ingestTaskMapper;
     private final ConsumedEventMapper consumedEventMapper;
+    private final RagOutboxMapper ragOutboxMapper;
     private final IngestEventPublisher eventPublisher;
+    private final ObjectMapper objectMapper;
+
+    @Value("${docbase.ingest.max-retries:3}")
+    private int maxRetries;
 
     public IngestTaskService(IngestTaskMapper ingestTaskMapper,
                               ConsumedEventMapper consumedEventMapper,
-                              IngestEventPublisher eventPublisher) {
+                              RagOutboxMapper ragOutboxMapper,
+                              IngestEventPublisher eventPublisher,
+                              ObjectMapper objectMapper) {
         this.ingestTaskMapper = ingestTaskMapper;
         this.consumedEventMapper = consumedEventMapper;
+        this.ragOutboxMapper = ragOutboxMapper;
         this.eventPublisher = eventPublisher;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -183,57 +197,6 @@ public class IngestTaskService {
     }
 
     /**
-     * Marks a task as SUCCEEDED.
-     */
-    @Transactional
-    public void markSucceeded(Long taskId, Integer chunkCount) {
-        IngestTask task = ingestTaskMapper.selectById(taskId);
-        if (task == null) {
-            throw new BusinessException("TASK_NOT_FOUND", "Task not found: " + taskId);
-        }
-        validateStatusTransition(task, IngestTaskStatus.SUCCEEDED);
-
-        task.setStatus(IngestTaskStatus.SUCCEEDED.name());
-        task.setChunkCount(chunkCount);
-        task.setFinishedAt(LocalDateTime.now());
-        task.setLastError(null);
-        ingestTaskMapper.updateById(task);
-
-        // Publish status event
-        publishStatusEvent(task, IngestEvent.DOCUMENT_SUCCEEDED);
-    }
-
-    /**
-     * Marks a task as FAILED and schedules retry.
-     */
-    @Transactional
-    public void markFailed(Long taskId, String error, LocalDateTime nextRetryAt) {
-        IngestTask task = ingestTaskMapper.selectById(taskId);
-        if (task == null) {
-            throw new BusinessException("TASK_NOT_FOUND", "Task not found: " + taskId);
-        }
-        validateStatusTransition(task, IngestTaskStatus.FAILED);
-
-        task.setStatus(IngestTaskStatus.FAILED.name());
-        task.setLastError(error != null && error.length() > 500 ? error.substring(0, 500) : error);
-        task.setFinishedAt(LocalDateTime.now());
-
-        // Determine if should retry
-        int attemptCount = task.getAttemptCount() != null ? task.getAttemptCount() : 0;
-        if (attemptCount < 3 && nextRetryAt != null) {
-            task.setStatus(IngestTaskStatus.RETRY_WAIT.name());
-            task.setNextRetryAt(nextRetryAt);
-        } else {
-            task.setStatus(IngestTaskStatus.DEAD.name());
-        }
-
-        ingestTaskMapper.updateById(task);
-
-        // Publish status event
-        publishStatusEvent(task, IngestEvent.DOCUMENT_FAILED);
-    }
-
-    /**
      * Cancels a task.
      */
     @Transactional
@@ -297,6 +260,200 @@ public class IngestTaskService {
         if (!current.canTransitionTo(target)) {
             throw new BusinessException("INVALID_STATUS_TRANSITION",
                     "Cannot transition from " + current + " to " + target);
+        }
+    }
+
+    /**
+     * Publishes a RAG ingest request event to the outbox.
+     * The task transitions to DISPATCHED only after the event is successfully written.
+     */
+    @Transactional
+    public void publishRagIngestRequest(IngestTask task) {
+        // Generate single eventId for both outbox and payload
+        String eventId = UUID.randomUUID().toString();
+
+        // Build RAG ingest request payload with real data
+        String payload = buildRagEventPayload(task, RagEvent.INGEST_REQUESTED, eventId);
+
+        // Write to outbox (same transaction as status update)
+        RagOutboxEntity outboxEvent = new RagOutboxEntity();
+        outboxEvent.setEventId(eventId);
+        outboxEvent.setEventType(RagEvent.INGEST_REQUESTED);
+        outboxEvent.setAggregateType("ingest_task");
+        outboxEvent.setAggregateId(task.getId().toString());
+        outboxEvent.setKnowledgeBaseId(task.getKnowledgeBaseId());
+        outboxEvent.setDocumentId(task.getDocumentId());
+        outboxEvent.setPayload(payload);
+        outboxEvent.setStatus("PENDING");
+        outboxEvent.setRetryCount(0);
+        outboxEvent.setSchemaVersion(RagEvent.CURRENT_SCHEMA_VERSION);
+        outboxEvent.setCreatedAt(LocalDateTime.now());
+        ragOutboxMapper.insert(outboxEvent);
+
+        // Note: Task stays in PROCESSING until RagOutboxPublisher confirms publish
+        // The publisher will transition to DISPATCHED after confirm
+        log.info("Written RAG ingest request to outbox for task: {}, eventId: {}", task.getId(), eventId);
+    }
+
+    /**
+     * Publishes a RAG delete request event to the outbox.
+     */
+    @Transactional
+    public void publishRagDeleteRequest(IngestTask task) {
+        // Generate single eventId for both outbox and payload
+        String eventId = UUID.randomUUID().toString();
+
+        // Build RAG delete request payload with real data
+        String payload = buildRagEventPayload(task, RagEvent.DELETE_REQUESTED, eventId);
+
+        RagOutboxEntity outboxEvent = new RagOutboxEntity();
+        outboxEvent.setEventId(eventId);
+        outboxEvent.setEventType(RagEvent.DELETE_REQUESTED);
+        outboxEvent.setAggregateType("ingest_task");
+        outboxEvent.setAggregateId(task.getId().toString());
+        outboxEvent.setKnowledgeBaseId(task.getKnowledgeBaseId());
+        outboxEvent.setDocumentId(task.getDocumentId());
+        outboxEvent.setPayload(payload);
+        outboxEvent.setStatus("PENDING");
+        outboxEvent.setRetryCount(0);
+        outboxEvent.setSchemaVersion(RagEvent.CURRENT_SCHEMA_VERSION);
+        outboxEvent.setCreatedAt(LocalDateTime.now());
+        ragOutboxMapper.insert(outboxEvent);
+
+        log.info("Written RAG delete request to outbox for task: {}, eventId: {}", task.getId(), eventId);
+    }
+
+    /**
+     * Called by RagOutboxPublisher after successful RabbitMQ confirm.
+     * Completes the dispatch in a single transaction:
+     * 1. Mark RagOutbox as PUBLISHED (conditional update)
+     * 2. Transition task from PROCESSING to DISPATCHED
+     * 3. Write ingest.document.dispatched status event to Outbox
+     *
+     * @param eventId the RagOutbox event ID
+     * @param taskId the task ID (aggregateId in RagOutbox)
+     */
+    @Transactional
+    public void completeRagDispatch(String eventId, Long taskId) {
+        // Mark Outbox as PUBLISHED first (conditional update from PUBLISHING)
+        int updated = ragOutboxMapper.markPublished(eventId);
+        if (updated == 0) {
+            log.warn("RagOutbox not in PUBLISHING state, skipping: {}", eventId);
+            return;
+        }
+
+        IngestTask task = ingestTaskMapper.selectById(taskId);
+        if (task == null) {
+            throw new BusinessException("TASK_NOT_FOUND", "Task not found: " + taskId);
+        }
+
+        // Validate status transition
+        validateStatusTransition(task, IngestTaskStatus.DISPATCHED);
+
+        // Update task status
+        task.setStatus(IngestTaskStatus.DISPATCHED.name());
+        ingestTaskMapper.updateById(task);
+
+        // Write status event to ingest Outbox
+        publishStatusEvent(task, IngestEvent.DOCUMENT_DISPATCHED);
+
+        log.info("RagOutbox published and task dispatched: eventId={}, taskId={}", eventId, taskId);
+    }
+
+    /**
+     * Marks a task as SUCCEEDED after RAG processing completes.
+     * Idempotent - safe to call multiple times for the same event.
+     */
+    @Transactional
+    public void markSucceeded(Long taskId, Integer chunkCount) {
+        IngestTask task = ingestTaskMapper.selectById(taskId);
+        if (task == null) {
+            throw new BusinessException("TASK_NOT_FOUND", "Task not found: " + taskId);
+        }
+
+        // Idempotent - if already SUCCEEDED, skip
+        if (IngestTaskStatus.SUCCEEDED.name().equals(task.getStatus())) {
+            log.info("Task already SUCCEEDED, skipping: {}", taskId);
+            return;
+        }
+
+        validateStatusTransition(task, IngestTaskStatus.SUCCEEDED);
+
+        task.setStatus(IngestTaskStatus.SUCCEEDED.name());
+        task.setChunkCount(chunkCount);
+        task.setFinishedAt(LocalDateTime.now());
+        task.setLastError(null);
+        ingestTaskMapper.updateById(task);
+
+        // Publish status event
+        publishStatusEvent(task, IngestEvent.DOCUMENT_SUCCEEDED);
+    }
+
+    /**
+     * Marks a task as FAILED and schedules retry.
+     * Idempotent - safe to call multiple times for the same event.
+     */
+    @Transactional
+    public void markFailed(Long taskId, String error, LocalDateTime nextRetryAt) {
+        IngestTask task = ingestTaskMapper.selectById(taskId);
+        if (task == null) {
+            throw new BusinessException("TASK_NOT_FOUND", "Task not found: " + taskId);
+        }
+
+        // Idempotent - if already in terminal state, skip
+        if (IngestTaskStatus.SUCCEEDED.name().equals(task.getStatus()) ||
+            IngestTaskStatus.DEAD.name().equals(task.getStatus())) {
+            log.info("Task in terminal state, skipping: {} status={}", taskId, task.getStatus());
+            return;
+        }
+
+        validateStatusTransition(task, IngestTaskStatus.FAILED);
+
+        task.setLastError(error != null && error.length() > 500 ? error.substring(0, 500) : error);
+        task.setFinishedAt(LocalDateTime.now());
+
+        // Determine if should retry
+        int attemptCount = task.getAttemptCount() != null ? task.getAttemptCount() : 0;
+        task.setAttemptCount(attemptCount + 1);
+
+        if (attemptCount + 1 >= maxRetries || nextRetryAt == null) {
+            task.setStatus(IngestTaskStatus.DEAD.name());
+        } else {
+            task.setStatus(IngestTaskStatus.RETRY_WAIT.name());
+            task.setNextRetryAt(nextRetryAt);
+        }
+
+        ingestTaskMapper.updateById(task);
+
+        // Publish status event
+        publishStatusEvent(task, IngestEvent.DOCUMENT_FAILED);
+    }
+
+    /**
+     * Builds the JSON payload for a RAG event using ObjectMapper.
+     * Uses camelCase to match Python Pydantic contract.
+     * eventId is passed in to ensure consistency between outbox and payload.
+     */
+    String buildRagEventPayload(IngestTask task, String eventType, String eventId) {
+        try {
+            RagEventPayload payload = new RagEventPayload();
+            payload.setEventId(eventId);  // Use same eventId as outbox
+            payload.setEventType(eventType);
+            payload.setAggregateType("ingest_task");
+            payload.setAggregateId(task.getId().toString());
+            payload.setKnowledgeBaseId(task.getKnowledgeBaseId());
+            payload.setDocumentId(task.getDocumentId());
+            payload.setVersionId(task.getVersionId() != null ? task.getVersionId() : 1L);
+            payload.setObjectKey(task.getObjectKey());
+            payload.setFileName(task.getFileName() != null ? task.getFileName() : "");
+            payload.setContentType(task.getContentType() != null ? task.getContentType() : "");
+            payload.setOperatorId(task.getCreatedBy());
+            payload.setSchemaVersion(RagEvent.CURRENT_SCHEMA_VERSION);
+            payload.setOccurredAt(Instant.now().toString());
+
+            return objectMapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to serialize RAG event payload", e);
         }
     }
 

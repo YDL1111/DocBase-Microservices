@@ -89,10 +89,14 @@ class OutboxTransactionTest {
                 "123",
                 1L,
                 null,
-                null,
-                1L,
-                1,
-                java.time.Instant.now()
+                1L,  // versionId
+                null,  // objectKey
+                "",  // fileName
+                "",  // contentType
+                1L,  // operatorId
+                1,  // schemaVersion
+                java.time.Instant.now(),
+                null  // traceId
         );
         outboxService.writeEvent(event);
 

@@ -103,8 +103,12 @@ public class KnowledgeEventConsumer {
      */
     private int getRetryCount(Message message) {
         Object retryHeader = message.getMessageProperties().getHeader("x-retry-count");
-        if (retryHeader instanceof Integer) {
-            return (Integer) retryHeader;
+        if (retryHeader != null) {
+            try {
+                return Integer.parseInt(retryHeader.toString());
+            } catch (NumberFormatException e) {
+                return 0;
+            }
         }
         return 0;
     }
