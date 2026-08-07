@@ -2,6 +2,7 @@ package com.docbase.knowledge.document.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.docbase.knowledge.document.domain.KnowledgeDocument;
+import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Update;
 
 public interface KnowledgeDocumentMapper extends BaseMapper<KnowledgeDocument> {
@@ -19,4 +20,10 @@ public interface KnowledgeDocumentMapper extends BaseMapper<KnowledgeDocument> {
      */
     @Update("UPDATE knowledge_document SET deleted = 1, delete_marker = id WHERE id = #{id} AND deleted = 0")
     int softDeleteById(Long id);
+
+    /**
+     * Updates the ingest status of a document.
+     */
+    @Update("UPDATE knowledge_document SET ingest_status = #{status} WHERE id = #{id} AND deleted = 0")
+    int updateIngestStatus(@Param("id") Long id, @Param("status") Integer status);
 }

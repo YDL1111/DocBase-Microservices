@@ -2,12 +2,16 @@ package com.docbase.chat;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.ActiveProfiles;
 
 @SpringBootTest(properties = {
-        "spring.cloud.nacos.discovery.enabled=false",
+        "spring.config.import=",
         "spring.cloud.nacos.config.enabled=false",
-        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration,com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration"
+        "spring.cloud.nacos.discovery.enabled=false"
 })
+@ActiveProfiles("test")
+@Import(ChatServiceTestConfiguration.class)
 class ChatServiceApplicationTests {
     @Test
     void contextLoads() {

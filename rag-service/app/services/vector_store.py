@@ -61,13 +61,17 @@ class VectorStoreService:
         """
         collection = self._get_collection(knowledge_base_id)
 
-        # Delete only versions older than the guard version
-        # This prevents a late-arriving old version from deleting newer data
-        if min_version_guard is not None and min_version_guard > 1:
-            self.delete_versions_older_than(knowledge_base_id, document_id, min_version_guard)
-        else:
-            # No guard - delete all versions (only for initial import)
-            self.delete_document(knowledge_base_id, document_id)
+        # VERSION PROTECTION: reject incoming versions older than the highest existing version.
+        # This prevents a late-arriving old version from overwriting newer data.
+        current_max_version = self._get_max_version_id(collection, document_id)
+        if current_max_version is not None and version_id < current_max_version:
+            logger.warning(
+                f"Rejecting stale version: doc {document_id} incoming v{version_id} < current v{current_max_version}")
+            return 0  # Do not write stale version
+
+        # Delete only versions older than the incoming version (clean up old data).
+        if version_id > 1:
+            self.delete_versions_older_than(knowledge_base_id, document_id, version_id)
 
         if not chunks:
             return 0
@@ -90,6 +94,14 @@ class VectorStoreService:
 
         logger.info(f"Upserted {len(chunks)} chunks for doc {document_id} v{version_id}")
         return len(chunks)
+
+    def _get_max_version_id(self, collection, document_id: int) -> int | None:
+        """Get the highest version_id currently stored for a document, or None if no chunks exist."""
+        result = collection.get(where={"document_id": {"$eq": document_id}}, include=["metadatas"])
+        metadatas = result.get("metadatas", [])
+        if not metadatas:
+            return None
+        return max((m.get("version_id", 0) for m in metadatas), default=None)
 
     def delete_versions_older_than(self, knowledge_base_id: int, document_id: int,
                                     min_version: int) -> int:

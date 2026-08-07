@@ -24,7 +24,14 @@ class OutboxPublisher:
 
     async def start(self):
         """Establish RabbitMQ connection."""
-        self._connection = await aio_pika.connect_robust(settings.RABBITMQ_URL)
+        # Use individual connection fields to avoid URL-encoding issues with vhost
+        self._connection = await aio_pika.connect_robust(
+            host=settings.RABBITMQ_HOST,
+            port=settings.RABBITMQ_PORT,
+            login=settings.RABBITMQ_USER,
+            password=settings.RABBITMQ_PASSWORD,
+            virtualhost=settings.RABBITMQ_VHOST,
+        )
         self._channel = await self._connection.channel()
         await self._channel.set_qos(prefetch_count=1)
         logger.info("Outbox publisher connected to RabbitMQ")

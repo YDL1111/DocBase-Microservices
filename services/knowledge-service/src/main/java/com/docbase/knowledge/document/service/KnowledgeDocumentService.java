@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.docbase.common.core.BusinessException;
 import com.docbase.contracts.KnowledgeEvent;
+import com.docbase.knowledge.base.domain.KnowledgeBase;
+import com.docbase.knowledge.document.KnowledgeDocumentConstants;
 import com.docbase.knowledge.document.domain.KnowledgeDocument;
 import com.docbase.knowledge.document.mapper.KnowledgeDocumentAclMapper;
 import com.docbase.knowledge.document.mapper.KnowledgeDocumentMapper;
@@ -11,14 +13,19 @@ import com.docbase.knowledge.document.mapper.KnowledgeDocumentVersionMapper;
 import com.docbase.knowledge.event.OutboxService;
 import com.docbase.knowledge.folder.mapper.KnowledgeFolderMapper;
 import com.docbase.knowledge.permission.KnowledgePermissionService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Service
 public class KnowledgeDocumentService {
+
+    private static final Logger log = LoggerFactory.getLogger(KnowledgeDocumentService.class);
 
     private final KnowledgeDocumentMapper documentMapper;
     private final KnowledgeFolderMapper folderMapper;
@@ -202,6 +209,93 @@ public class KnowledgeDocumentService {
                 existing.getContentType(),
                 userId
         ));
+    }
+
+    /**
+     * Computes the set of document IDs the current user is allowed to see in a knowledge base,
+     * for the AI chat service to scope RAG retrieval.
+     *
+     * <p>Only returns documents that are:
+     * <ul>
+     *   <li>not deleted ({@code deleted = 0})</li>
+     *   <li>published ({@code status = 2})</li>
+     *   <li>successfully ingested ({@code ingest_status = 3})</li>
+     *   <li>visible to the current user per the document's visibility rules</li>
+     * </ul>
+     *
+     * <p>Visibility rules for regular members:
+     * <ul>
+     *   <li>PUBLIC (3): visible to all members</li>
+     *   <li>PRIVATE (1): visible only to the creator or users/grants explicitly granted via ACL</li>
+     *   <li>DEPT (2): fail-closed — not visible, because the current JWT carries no reliable
+     *       department identity. Only the creator can see their own private/dept documents.</li>
+     * </ul>
+     *
+     * <p>Super-admins ({@code admin:all}) bypass visibility/ACL checks but the knowledge base
+     * must still exist and be enabled.
+     *
+     * <p>The result is capped at {@link KnowledgeDocumentConstants#VISIBLE_DOC_IDS_LIMIT} (1000),
+     * which is the maximum the RAG service accepts.
+     *
+     * @param knowledgeBaseId the knowledge base ID
+     * @param userId the current user ID from JWT
+     * @param isAdmin whether the current user holds {@code admin:all}
+     * @return ordered list of visible document IDs (possibly empty, never null)
+     */
+    public List<Long> findVisibleDocumentIds(Long knowledgeBaseId, Long userId, boolean isAdmin) {
+        // Verify the knowledge base exists and is enabled. Admins cannot bypass existence.
+        KnowledgeBase base = permissionService.requireActiveKnowledgeBase(knowledgeBaseId);
+        if (base.getStatus() == null || base.getStatus() != 1) {
+            throw new BusinessException("KNOWLEDGE_BASE_DISABLED", "Knowledge base is disabled");
+        }
+
+        // Regular users must be members of the knowledge base (any role).
+        // Admins bypass the membership check but not the existence/enabled checks above.
+        if (!isAdmin) {
+            permissionService.requireMembership(knowledgeBaseId, userId, false);
+        }
+
+        QueryWrapper<KnowledgeDocument> wrapper = new QueryWrapper<>();
+        wrapper.eq("knowledge_base_id", knowledgeBaseId)
+                .eq("deleted", 0)
+                .eq("status", KnowledgeDocumentConstants.STATUS_PUBLISHED)
+                .eq("ingest_status", KnowledgeDocumentConstants.INGEST_STATUS_SUCCESS);
+
+        if (!isAdmin) {
+            // Visibility filter for regular members:
+            //   - creator always sees their own documents
+            //   - PUBLIC documents are visible to all members
+            //   - PRIVATE documents require an explicit user ACL grant
+            //   - DEPT documents are fail-closed (no reliable dept identity in JWT)
+            wrapper.and(w -> w
+                    .eq("created_by", userId)
+                    .or().eq("visibility", KnowledgeDocumentConstants.VISIBILITY_PUBLIC)
+                    .or().apply("visibility = {0} AND EXISTS ("
+                                    + "SELECT 1 FROM knowledge_document_acl acl "
+                                    + "WHERE acl.document_id = knowledge_document.id "
+                                    + "AND acl.subject_type = {1} "
+                                    + "AND acl.subject_id = {2} "
+                                    + "AND acl.deleted = {3})",
+                            KnowledgeDocumentConstants.VISIBILITY_PRIVATE,
+                            KnowledgeDocumentConstants.ACL_SUBJECT_TYPE_USER,
+                            userId, 0));
+        }
+
+        // Cap at limit + 1 so we can detect truncation without a separate count query.
+        wrapper.select("id")
+                .orderByAsc("id")
+                .last("LIMIT " + (KnowledgeDocumentConstants.VISIBLE_DOC_IDS_LIMIT + 1));
+
+        List<KnowledgeDocument> rows = documentMapper.selectList(wrapper);
+
+        boolean truncated = rows.size() > KnowledgeDocumentConstants.VISIBLE_DOC_IDS_LIMIT;
+        if (truncated) {
+            log.warn("Visible document ids for knowledge base {} capped at {} (requested for user {})",
+                    knowledgeBaseId, KnowledgeDocumentConstants.VISIBLE_DOC_IDS_LIMIT, userId);
+            rows = rows.subList(0, KnowledgeDocumentConstants.VISIBLE_DOC_IDS_LIMIT);
+        }
+
+        return rows.stream().map(KnowledgeDocument::getId).toList();
     }
 
     /**

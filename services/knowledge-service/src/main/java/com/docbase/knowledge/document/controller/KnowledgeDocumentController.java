@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.docbase.common.core.ApiResponse;
 import com.docbase.knowledge.document.domain.KnowledgeDocument;
 import com.docbase.knowledge.document.service.KnowledgeDocumentService;
+
+import java.util.List;
 import com.docbase.knowledge.permission.KnowledgeUserPrincipal;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -38,6 +40,23 @@ public class KnowledgeDocumentController {
             @PathVariable Long documentId,
             @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
         return ApiResponse.success(documentService.getById(documentId, principal.userId(), principal.admin()));
+    }
+
+    /**
+     * Returns the document IDs the current user is allowed to see in the knowledge base,
+     * for AI chat to scope RAG retrieval. The chat service must never accept these IDs
+     * from the client — they are always computed here from the verified JWT identity.
+     *
+     * <p>Only published, successfully-ingested, non-deleted documents are considered.
+     * Visibility follows the document visibility rules (PUBLIC/PRIVATE-with-ACL/DEPT-fail-closed).
+     */
+    @GetMapping("/bases/{knowledgeBaseId}/visible-document-ids")
+    @PreAuthorize("hasAuthority('knowledge:document:list') or hasAuthority('admin:all')")
+    public ApiResponse<List<Long>> visibleDocumentIds(
+            @PathVariable Long knowledgeBaseId,
+            @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
+        return ApiResponse.success(documentService.findVisibleDocumentIds(
+                knowledgeBaseId, principal.userId(), principal.admin()));
     }
 
     @PostMapping("/bases/{knowledgeBaseId}/documents")

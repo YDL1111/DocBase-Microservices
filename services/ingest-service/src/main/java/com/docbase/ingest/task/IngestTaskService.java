@@ -102,6 +102,9 @@ public class IngestTaskService {
         task.setKnowledgeBaseId(event.knowledgeBaseId());
         task.setDocumentId(event.documentId());
         task.setObjectKey(event.objectKey());
+        task.setVersionId(event.versionId());
+        task.setFileName(event.fileName());
+        task.setContentType(event.contentType());
         task.setStatus(IngestTaskStatus.PENDING.name());
         task.setAttemptCount(0);
         task.setCreatedBy(event.operatorId());

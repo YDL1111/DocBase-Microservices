@@ -1,8 +1,10 @@
 """
 Nacos service registration for rag-service.
+Uses Nacos 3.1.1 API (/nacos/v3/client/ns/instance) with token-based auth.
 """
 import asyncio
 import socket
+import time
 import uuid
 from typing import Optional
 
@@ -27,6 +29,8 @@ class NacosClient:
         self._instance_id = str(uuid.uuid4())
         self._registered = False
         self._heartbeat_task: Optional[asyncio.Task] = None
+        self._access_token: Optional[str] = None
+        self._token_expiry: float = 0
 
     @property
     def _instance_ip(self) -> str:
@@ -37,6 +41,37 @@ class NacosClient:
     def _instance_port(self) -> int:
         """Get the port to register with Nacos."""
         return settings.PORT
+
+    @property
+    def _base_url(self) -> str:
+        """Nacos 3.x API base URL."""
+        return f"http://{self._server}/nacos/v3/client/ns/instance"
+
+    async def _get_access_token(self) -> str:
+        """Get access token from Nacos (with caching)."""
+        # Return cached token if still valid (with 60s buffer)
+        if self._access_token and time.time() < self._token_expiry - 60:
+            return self._access_token
+
+        url = f"http://{self._server}/nacos/v1/auth/login"
+        data = {
+            "username": self._username,
+            "password": self._password,
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, data=data)
+            response.raise_for_status()
+            result = response.json()
+            self._access_token = result["accessToken"]
+            # Token valid for 1 hour by default
+            self._token_expiry = time.time() + result.get("ttl", 3600)
+            return self._access_token
+
+    async def _auth_headers(self) -> dict:
+        """Get authorization headers with access token."""
+        token = await self._get_access_token()
+        return {"Authorization": f"Bearer {token}"}
 
     async def start(self):
         """Register service with Nacos and start heartbeat."""
@@ -61,8 +96,8 @@ class NacosClient:
             self._heartbeat_task.cancel()
 
     async def _register(self):
-        """Register service instance with Nacos."""
-        url = f"http://{self._server}/nacos/v2/ns/instance"
+        """Register service instance with Nacos 3.x."""
+        headers = await self._auth_headers()
         params = {
             "namespaceId": self._namespace,
             "groupName": self._group,
@@ -71,15 +106,14 @@ class NacosClient:
             "port": self._instance_port,
             "ephemeral": "true",
         }
-        auth = (self._username, self._password)
 
         async with httpx.AsyncClient() as client:
-            response = await client.post(url, params=params, auth=auth)
+            response = await client.post(self._base_url, params=params, headers=headers)
             response.raise_for_status()
 
     async def _deregister(self):
-        """Deregister service instance from Nacos."""
-        url = f"http://{self._server}/nacos/v2/ns/instance"
+        """Deregister service instance from Nacos 3.x."""
+        headers = await self._auth_headers()
         params = {
             "namespaceId": self._namespace,
             "groupName": self._group,
@@ -88,10 +122,9 @@ class NacosClient:
             "port": self._instance_port,
             "ephemeral": "true",
         }
-        auth = (self._username, self._password)
 
         async with httpx.AsyncClient() as client:
-            response = await client.delete(url, params=params, auth=auth)
+            response = await client.delete(self._base_url, params=params, headers=headers)
             response.raise_for_status()
 
     async def _heartbeat_loop(self):
@@ -106,8 +139,8 @@ class NacosClient:
                 logger.warning(f"Nacos heartbeat failed: {e}")
 
     async def _send_heartbeat(self):
-        """Send a heartbeat to Nacos."""
-        url = f"http://{self._server}/nacos/v2/ns/instance/beat"
+        """Send a heartbeat to Nacos 3.x (same POST endpoint with heartBeat=true)."""
+        headers = await self._auth_headers()
         params = {
             "namespaceId": self._namespace,
             "groupName": self._group,
@@ -115,11 +148,11 @@ class NacosClient:
             "ip": self._instance_ip,
             "port": self._instance_port,
             "ephemeral": "true",
+            "heartBeat": "true",
         }
-        auth = (self._username, self._password)
 
         async with httpx.AsyncClient() as client:
-            response = await client.put(url, params=params, auth=auth)
+            response = await client.post(self._base_url, params=params, headers=headers)
             response.raise_for_status()
 
 

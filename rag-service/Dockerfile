@@ -5,6 +5,9 @@ RUN useradd --system --create-home --uid 10001 docbase
 
 WORKDIR /app
 
+# Ensure Python can import from /app
+ENV PYTHONPATH=/app
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \

@@ -23,8 +23,12 @@ class Settings(BaseSettings):
     DATABASE_POOL_SIZE: int = 5
     DATABASE_MAX_OVERFLOW: int = 5
 
-    # RabbitMQ
-    RABBITMQ_URL: str = "amqp://docbase:change-me@rabbitmq:5672/docbase"
+    # RabbitMQ — split into individual fields to avoid URL-encoding issues with vhost
+    RABBITMQ_HOST: str = "rabbitmq"
+    RABBITMQ_PORT: int = 5672
+    RABBITMQ_USER: str = "docbase"
+    RABBITMQ_PASSWORD: str = "change-me"
+    RABBITMQ_VHOST: str = "/docbase"
     RABBITMQ_CONSUMER_PREFETCH: int = 1
 
     # MinIO

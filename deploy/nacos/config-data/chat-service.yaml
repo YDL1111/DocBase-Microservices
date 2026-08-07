@@ -1,5 +1,15 @@
 docbase:
   chat:
-    rag-top-k: 5
-    model: keep-existing-deepseek-model
-    embedding-model: BAAI/bge-m3
+    feign:
+      enabled: true
+    stream:
+      max-concurrent: 1
+      lock-ttl: 120s
+      max-question-length: 4000
+      max-response-length: 65536
+    rag:
+      top-k: 5
+      model: keep-existing-deepseek-model
+      embedding-model: BAAI/bge-m3
+      connect-timeout: 5s
+      idle-timeout: 120s

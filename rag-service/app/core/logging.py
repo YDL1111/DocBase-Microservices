@@ -7,6 +7,17 @@ import sys
 from app.core.config import settings
 
 
+class TraceIdFilter(logging.Filter):
+    """Fill missing trace_id/event_id with '-' for log records that don't have them."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not hasattr(record, "trace_id"):
+            record.trace_id = "-"
+        if not hasattr(record, "event_id"):
+            record.event_id = "-"
+        return True
+
+
 def setup_logging():
     """Configure structured logging for the application."""
     log_format = (
@@ -16,6 +27,8 @@ def setup_logging():
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter(log_format))
+    # Add filter to fill missing trace_id/event_id
+    handler.addFilter(TraceIdFilter())
 
     # Configure root logger
     root_logger = logging.getLogger()

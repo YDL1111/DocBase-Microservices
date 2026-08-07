@@ -1,0 +1,79 @@
+spring:
+  cloud:
+    nacos:
+      discovery:
+        enabled: false
+      config:
+        enabled: false
+    config:
+      enabled: false
+    openfeign:
+      client:
+        enabled: false
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=MySQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  flyway:
+    enabled: false
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-h2.sql
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 1s
+  autoconfigure:
+    exclude:
+      - com.alibaba.cloud.nacos.NacosDiscoveryAutoConfiguration
+      - com.alibaba.cloud.nacos.NacosConfigAutoConfiguration
+      - com.alibaba.cloud.nacos.discovery.NacosDiscoveryClientAutoConfiguration
+      - com.alibaba.cloud.nacos.config.NacosConfigBootstrapConfiguration
+      - com.alibaba.cloud.nacos.registry.NacosServiceRegistryAutoConfiguration
+      - com.alibaba.cloud.nacos.NacosAutoServiceRegistration
+      - org.springframework.cloud.openfeign.FeignAutoConfiguration
+      - org.springframework.cloud.openfeign.hateoas.FeignHalAutoConfiguration
+      - org.springframework.cloud.openfeign.security.oauth2.FeignOAuth2AutoConfiguration
+      - org.springframework.cloud.openfeign.loadbalancer.FeignLoadBalancerAutoConfiguration
+      - org.springframework.cloud.openfeign.circuitbreaker.FeignCircuitBreakerAutoConfiguration
+      - org.springframework.cloud.openfeign.clientconfig.FeignClientProperties
+      - org.springframework.cloud.commons.httpclient.HttpClientConfiguration
+      - org.springframework.cloud.client.loadbalancer.LoadBalancerDefaultMappingsProviderAutoConfiguration
+      - org.springframework.cloud.loadbalancer.config.BlockingLoadBalancerClientAutoConfiguration
+      - org.springframework.cloud.loadbalancer.config.LoadBalancerAutoConfiguration
+
+jwt:
+  public-key-path: ${JWT_PUBLIC_KEY_PATH:.local/keys/docbase-iam-public.pem}
+  issuer: ${IAM_JWT_ISSUER:docbase-iam}
+  fail-closed: ${JWT_FAIL_CLOSED:false}
+
+docbase:
+  chat:
+    feign:
+      enabled: false
+    stream:
+      max-concurrent: 1
+      lock-ttl: 120s
+      max-question-length: 4000
+      max-response-length: 65536
+    rag:
+      connect-timeout: 5s
+      idle-timeout: 120s
+      max-in-memory-size: 262144
+
+jackson:
+  serialization:
+    write-dates-as-timestamps: false
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+      id-type: auto

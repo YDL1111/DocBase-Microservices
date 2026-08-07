@@ -55,6 +55,13 @@ spring:
     import:
       - optional:nacos:common.yaml?group=DOCBASE_GROUP&refreshEnabled=true
       - optional:nacos:${spring.application.name}.yaml?group=DOCBASE_GROUP&refreshEnabled=true
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      username: ${GATEWAY_REDIS_USER:gateway}
+      password: ${GATEWAY_REDIS_PASSWORD:change-me-gateway-redis}
+      timeout: 3s
 
 jwt:
   public-key-path: ${JWT_PUBLIC_KEY_PATH:.local/keys/docbase-iam-public.pem}

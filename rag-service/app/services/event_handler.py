@@ -166,8 +166,10 @@ class EventHandler:
         outbox_event = RagOutbox()
         outbox_event.event_id = str(uuid.uuid4())
         outbox_event.event_type = event_type
-        outbox_event.aggregate_type = "rag_document"
-        outbox_event.aggregate_id = str(event.document_id)
+        outbox_event.aggregate_type = "ingest_task"
+        # CRITICAL: aggregate_id must be the ingest task ID (event.aggregate_id),
+        # NOT the document_id. Ingest uses this to correlate the result back to the task.
+        outbox_event.aggregate_id = event.aggregate_id
         outbox_event.knowledge_base_id = event.knowledge_base_id
         outbox_event.document_id = event.document_id
 
@@ -175,8 +177,8 @@ class EventHandler:
         payload = {
             "eventId": outbox_event.event_id,
             "eventType": event_type,
-            "aggregateType": "rag_document",
-            "aggregateId": str(event.document_id),
+            "aggregateType": "ingest_task",
+            "aggregateId": event.aggregate_id,
             "knowledgeBaseId": event.knowledge_base_id,
             "documentId": event.document_id,
             "versionId": event.version_id,

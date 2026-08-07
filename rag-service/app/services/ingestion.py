@@ -72,8 +72,11 @@ class IngestionService:
             chunks = self.chunker.chunk_documents(documents)
 
             # Store in vector database
+            # Pass version_id as min_version_guard to prevent late-arriving old versions
+            # from deleting newer data. This enables version protection.
             chunk_count = vector_store.upsert_chunks(
-                knowledge_base_id, document_id, version_id, chunks
+                knowledge_base_id, document_id, version_id, chunks,
+                min_version_guard=version_id
             )
 
             logger.info(f"Ingestion complete: {chunk_count} chunks for doc {document_id}")

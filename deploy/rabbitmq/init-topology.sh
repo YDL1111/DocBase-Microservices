@@ -28,6 +28,20 @@ until curl -fsS -u "${username}:${password}" "${base_url}/api/health/checks/alar
 done
 
 # =============================================================================
+# VHost
+# =============================================================================
+
+# Create the vhost (required before any queue/exchange can be created in it)
+echo "Creating vhost: $vhost"
+curl -fsS -u "${username}:${password}" -X PUT "${base_url}/api/vhosts/${vhost}" \
+  --data '{}' >/dev/null 2>&1 || echo "  [WARN] VHost may already exist"
+
+# Set permissions for docbase user on this vhost
+curl -fsS -u "${username}:${password}" -X PUT \
+  "${base_url}/api/permissions/${vhost}/docbase" \
+  --data '{"configure":".*","write":".*","read":".*"}' >/dev/null 2>&1 || true
+
+# =============================================================================
 # Exchanges
 # =============================================================================
 
@@ -71,6 +85,55 @@ request PUT "/api/queues/${vhost}/docbase.ingest.dlq" \
 # Knowledge status queue (consumed by knowledge-service)
 request PUT "/api/queues/${vhost}/docbase.knowledge.status.queue" \
   '{"durable":true,"auto_delete":false,"arguments":{"x-queue-type":"classic"}}'
+
+# =============================================================================
+# RAG Consumer Retry Topology (independent from Ingest)
+# =============================================================================
+# NOTE: Migration cleanup for old RAG retry queues (that used shared document.retry)
+# is a ONE-TIME operation. It has been moved to a separate migration script
+# (migrate-rag-retry-topology.sh) and should NOT be run on every startup, as it
+# would delete queues with pending messages.
+
+# RAG retry DLX (direct exchange for retry routing)
+request PUT "/api/exchanges/${vhost}/docbase.rag.retry.dlx" \
+  '{"type":"direct","durable":true,"auto_delete":false,"internal":false,"arguments":{}}'
+
+# RAG main consumer queue (consumes knowledge events for RAG processing)
+request PUT "/api/queues/${vhost}/docbase.rag.ingest.queue" \
+  '{"durable":true,"auto_delete":false,"arguments":{"x-queue-type":"classic","x-dead-letter-exchange":"docbase.rag.retry.dlx","x-dead-letter-routing-key":"rag.failed"}}'
+
+# RAG retry queues - TTL expires, dead-letters back to main exchange with RAG-only routing key
+request PUT "/api/queues/${vhost}/docbase.rag.retry.30s.queue" \
+  '{"durable":true,"auto_delete":false,"arguments":{"x-queue-type":"classic","x-message-ttl":30000,"x-dead-letter-exchange":"docbase.document.exchange","x-dead-letter-routing-key":"rag.document.retry"}}'
+request PUT "/api/queues/${vhost}/docbase.rag.retry.5m.queue" \
+  '{"durable":true,"auto_delete":false,"arguments":{"x-queue-type":"classic","x-message-ttl":300000,"x-dead-letter-exchange":"docbase.document.exchange","x-dead-letter-routing-key":"rag.document.retry"}}'
+request PUT "/api/queues/${vhost}/docbase.rag.retry.30m.queue" \
+  '{"durable":true,"auto_delete":false,"arguments":{"x-queue-type":"classic","x-message-ttl":1800000,"x-dead-letter-exchange":"docbase.document.exchange","x-dead-letter-routing-key":"rag.document.retry"}}'
+
+# RAG DLQ
+request PUT "/api/queues/${vhost}/docbase.rag.dlq" \
+  '{"durable":true,"auto_delete":false,"arguments":{"x-queue-type":"classic"}}'
+
+# RAG consumer queue bindings
+request POST "/api/bindings/${vhost}/e/docbase.document.exchange/q/docbase.rag.ingest.queue" \
+  '{"routing_key":"rag.document.ingest.requested","arguments":{}}'
+request POST "/api/bindings/${vhost}/e/docbase.document.exchange/q/docbase.rag.ingest.queue" \
+  '{"routing_key":"rag.document.delete.requested","arguments":{}}'
+# CRITICAL: RAG queue binds to RAG-only retry routing key (NOT shared document.retry)
+request POST "/api/bindings/${vhost}/e/docbase.document.exchange/q/docbase.rag.ingest.queue" \
+  '{"routing_key":"rag.document.retry","arguments":{}}'
+
+# RAG retry queues bind to RAG retry DLX
+request POST "/api/bindings/${vhost}/e/docbase.rag.retry.dlx/q/docbase.rag.retry.30s.queue" \
+  '{"routing_key":"rag.retry.1","arguments":{}}'
+request POST "/api/bindings/${vhost}/e/docbase.rag.retry.dlx/q/docbase.rag.retry.5m.queue" \
+  '{"routing_key":"rag.retry.2","arguments":{}}'
+request POST "/api/bindings/${vhost}/e/docbase.rag.retry.dlx/q/docbase.rag.retry.30m.queue" \
+  '{"routing_key":"rag.retry.3","arguments":{}}'
+
+# RAG DLQ binds to RAG retry DLX
+request POST "/api/bindings/${vhost}/e/docbase.rag.retry.dlx/q/docbase.rag.dlq" \
+  '{"routing_key":"rag.failed","arguments":{}}'
 
 # =============================================================================
 # RAG Result Exchange (separate from Ingest status events)

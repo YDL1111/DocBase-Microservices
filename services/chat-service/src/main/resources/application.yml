@@ -64,6 +64,15 @@ docbase:
     base-url: ${RAG_BASE_URL:http://rag-service:8090}
     model: ${DEEPSEEK_MODEL:keep-existing-deepseek-model}
     embedding-model: BAAI/bge-m3
+    connect-timeout: ${CHAT_RAG_CONNECT_TIMEOUT:5s}
+    idle-timeout: ${CHAT_RAG_IDLE_TIMEOUT:120s}
+    max-in-memory-size: 262144
+  chat:
+    stream:
+      max-concurrent: ${CHAT_STREAM_MAX_CONCURRENT:1}
+      lock-ttl: ${CHAT_STREAM_LOCK_TTL:120s}
+      max-question-length: ${CHAT_STREAM_MAX_QUESTION_LENGTH:4000}
+      max-response-length: ${CHAT_STREAM_MAX_RESPONSE_LENGTH:65536}
 
 management:
   endpoints:
