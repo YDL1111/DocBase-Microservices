@@ -1,0 +1,45 @@
+{
+  "name": "docbase-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DocBase Microservices Vue 前端 - Phase 1 基础设施与 IAM 接入",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "run-p typecheck \"build-only {@}\" --",
+    "preview": "vite preview",
+    "build-only": "vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint . --ext .vue,.ts,.tsx --fix"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "@iconify/vue": "^4.1.2",
+    "axios": "^1.7.2",
+    "dayjs": "^1.11.11",
+    "element-plus": "^2.7.6",
+    "nprogress": "^0.2.0",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.27",
+    "vue-router": "^4.3.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/nprogress": "^0.2.3",
+    "@vitejs/plugin-vue": "^5.0.5",
+    "@vitejs/plugin-vue-jsx": "^4.0.0",
+    "@vue/test-utils": "^2.4.6",
+    "happy-dom": "^14.12.0",
+    "npm-run-all2": "^6.2.0",
+    "sass": "^1.77.6",
+    "typescript": "^5.4.5",
+    "vite": "^5.3.1",
+    "vitest": "^1.6.0",
+    "vue-tsc": "^2.0.21"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
