@@ -23,6 +23,33 @@ export interface PermissionState {
 /** 占位组件：业务页面尚未迁移时的兜底页 */
 const PlaceholderView = () => import("@/views/placeholder/index.vue");
 
+/**
+ * 路由出口包装组件。
+ * 用于菜单中的"目录"节点——它们本身无内容，但需要渲染子路由。
+ * 若目录节点使用 PlaceholderView（无 <router-view>），子路由将无法显示。
+ */
+const RouterViewWrapper = () => import("@/views/route-view.vue");
+
+/**
+ * 路由名称 → 真实组件的映射表。
+ *
+ * 后端 /api/auth/menus 返回的 MenuNode.routerName 若在此表中命中，
+ * 则使用对应的真实组件渲染；未命中的回退到 PlaceholderView。
+ * 这样菜单未完全迁移时不会报错，只会显示"建设中"占位页。
+ *
+ * 注意：使用懒加载避免首屏体积膨胀。
+ */
+const componentRegistry: Record<string, () => Promise<any>> = {
+  Knowledge: RouterViewWrapper,
+  KnowledgeList: () => import("@/views/knowledge/list.vue"),
+  KnowledgeDetail: () => import("@/views/knowledge/detail.vue")
+};
+
+/** 根据 routerName 解析组件，未命中则回退占位页 */
+function resolveComponent(routerName: string): () => Promise<any> {
+  return componentRegistry[routerName] || PlaceholderView;
+}
+
 export const usePermissionStore = defineStore({
   id: "docbase-permission",
   state: (): PermissionState => ({
@@ -53,7 +80,7 @@ export const usePermissionStore = defineStore({
       return {
         path: node.path,
         name: node.routerName || `menu-${node.menuId}`,
-        component: PlaceholderView,
+        component: resolveComponent(node.routerName || ""),
         meta: {
           title: node.menuName,
           menuId: node.menuId,

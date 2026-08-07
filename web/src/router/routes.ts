@@ -19,13 +19,26 @@ export const LOGIN_ROUTE: RouteRecordRaw = {
   meta: { title: "登录" }
 };
 
-/** 内嵌布局下的静态页面 */
+/**
+ * 内嵌布局下的静态页面。
+ *
+ * 注意：KnowledgeDetail 是隐藏路由——它不显示在侧边栏菜单中
+ * （菜单由后端 /api/auth/menus 驱动），但必须存在于应用路由表，
+ * 否则从列表页跳转到 /knowledge/:id 会进入 404。
+ * 后端菜单只返回"知识库列表"作为可见入口，详情页通过列表点击进入。
+ */
 export const INNER_ROUTES: RouteRecordRaw[] = [
   {
     path: "/home",
     name: "Home",
     component: () => import("@/views/home/index.vue"),
     meta: { title: "首页", affix: true }
+  },
+  {
+    path: "/knowledge/:id",
+    name: "KnowledgeDetail",
+    component: () => import("@/views/knowledge/detail.vue"),
+    meta: { title: "知识库详情", hidden: true }
   }
 ];
 
