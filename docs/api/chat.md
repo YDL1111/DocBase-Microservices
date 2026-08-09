@@ -55,6 +55,16 @@ The browser client uses `fetch` with `POST /api/ai/chat/stream`, JSON request da
 - EOF without a `done` or `error` event is an incomplete stream. A user cancellation is propagated through `AbortSignal` to fetch.
 - After a `done` or `error` event the client keeps reading until the server closes the stream, while ignoring any later events, so the server can persist its terminal state normally.
 
+## Chat page streaming behavior (Phase 4C1)
+
+- The page sends only from a selected, valid session that has a positive `knowledgeBaseId`. The user cannot change the knowledge base from the question box; the selected session's stored binding is sent with the request.
+- Each new user intent uses one browser-generated UUID `clientRequestId`. The same value stays with the exact request if the stream client's initial-401 retry runs.
+- The USER message and one temporary ASSISTANT message are added immediately. Tokens append to that same assistant message, and `sources` attach to that same message even if they arrive before tokens.
+- Every callback is guarded by a stream generation, its `AbortController`, the selected-session snapshot, and component mounted state. Switching sessions, deleting the active session, leaving the route, unmounting, replacing a live stream, or explicit stop invalidates the previous generation before aborting it.
+- On `done`, the UI retains the temporary result while it reloads the selected session history; the persisted history becomes authoritative only if the same stream/session is still current. This history-only settling state is replaceable: a new accepted question invalidates the old refresh instead of being dropped. A failed refresh leaves the completed temporary result visible for manual refresh.
+- An SSE `error`, incomplete EOF, or client failure is never displayed as successful. An error immediately ends the visible generating state while the client drains the terminal stream in the background; it cannot subsequently be changed to cancelled. Terminal error drain and user cancellation are non-replaceable settling states: the question box keeps its text, but sending stays unavailable until the prior `consume()` Promise settles, so the server can persist the terminal state and release its concurrency lock. UI messages use safe generic text and never expose backend stack traces, URLs, SQL, MinIO keys, or prompts. Explicit user stop marks only an actively generating temporary response cancelled; background cancellation from navigation/session changes does not show a toast in the new session.
+- Sources display only validated `file_name` and optional positive `page` values. `document_id` must be a positive safe integer; no object keys, download URLs, or direct object-storage links are rendered.
+
 ## 数据库
 
 - `ai_chat_session`：会话主表

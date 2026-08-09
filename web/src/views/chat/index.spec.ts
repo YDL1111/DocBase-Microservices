@@ -3,12 +3,17 @@ import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import authDirective from "@/directive/permission";
 
-const { listSessions, listMessages, createSession, deleteSession, confirm, messages, hasPermission } = vi.hoisted(() => ({
+const { listSessions, listMessages, createSession, deleteSession, confirm, streamChat, messages, hasPermission } = vi.hoisted(() => ({
   listSessions: vi.fn(), listMessages: vi.fn(), createSession: vi.fn(), deleteSession: vi.fn(), confirm: vi.fn(),
+  streamChat: vi.fn(),
   messages: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }, hasPermission: vi.fn()
 }));
 vi.mock("@/api/chat", () => ({ listChatSessions: (...args: unknown[]) => listSessions(...args), listChatMessages: (...args: unknown[]) => listMessages(...args), createChatSession: (...args: unknown[]) => createSession(...args), deleteChatSession: (...args: unknown[]) => deleteSession(...args) }));
 vi.mock("@/api/knowledge", () => ({ listKnowledgeBases: vi.fn() }));
+vi.mock("@/api/chat-stream", () => ({
+  streamChat: (...args: unknown[]) => streamChat(...args),
+  ChatStreamClientError: class ChatStreamClientError extends Error { constructor(readonly code: string) { super(code); } }
+}));
 vi.mock("@/utils/message", () => ({ message: messages }));
 vi.mock("element-plus", () => ({ ElMessageBox: { confirm: (...args: unknown[]) => confirm(...args) } }));
 vi.mock("@/store/modules/user", () => ({ useUserStoreHook: () => ({ hasPermission }) }));
@@ -17,13 +22,14 @@ import ChatPage from "./index.vue";
 
 const SessionList = { name: "SessionList", props: ["sessions", "selectedSessionId", "loading", "deletingSessionId", "current", "size", "total"], emits: ["create", "select", "delete", "refresh", "pageChange", "sizeChange"], template: "<div><slot /></div>" };
 const MessageHistory = { name: "MessageHistory", props: ["messages", "loading", "selectedSessionId"], template: "<div />" };
+const ChatComposer = { name: "ChatComposer", props: ["modelValue", "streaming", "canSend", "maxLength"], emits: ["send", "stop", "update:modelValue"], template: "<div />" };
 const CreateSessionDialog = { name: "CreateSessionDialog", props: ["modelValue", "knowledgeBases", "loadingKnowledgeBases", "creating"], emits: ["create", "opened", "update:modelValue"], template: "<div />" };
 function result(records: any[] = []) { return { records, total: records.length, current: 1, size: 20, pages: 1 }; }
 async function flush() { await nextTick(); await Promise.resolve(); await nextTick(); }
-function mountPage() { return mount(ChatPage, { global: { stubs: { SessionList, MessageHistory, CreateSessionDialog }, directives: { auth: { mounted() {}, updated() {} } } } }); }
+function mountPage() { return mount(ChatPage, { global: { stubs: { SessionList, MessageHistory, ChatComposer, CreateSessionDialog }, directives: { auth: { mounted() {}, updated() {} } } } }); }
 
 describe("chat history page", () => {
-  beforeEach(() => { vi.clearAllMocks(); listSessions.mockResolvedValue(result([{ id: 1, title: "A", knowledgeBaseId: 7, updatedAt: "t", userId: 1, status: 1, createdAt: "t" }])); });
+  beforeEach(() => { vi.clearAllMocks(); streamChat.mockReset(); hasPermission.mockReturnValue(true); listSessions.mockResolvedValue(result([{ id: 1, title: "A", knowledgeBaseId: 7, updatedAt: "t", userId: 1, status: 1, createdAt: "t" }])); });
 
   it("renders sessions returned by the real page request", async () => {
     const wrapper = mountPage(); await flush();
@@ -106,6 +112,25 @@ describe("chat history page", () => {
     expect(deleteSession).not.toHaveBeenCalled();
   });
 
+  it("keeps an active answer running when the delete confirmation is cancelled", async () => {
+    let signal!: AbortSignal;
+    confirm.mockRejectedValueOnce(new Error("cancel"));
+    listMessages.mockResolvedValue([]);
+    streamChat.mockImplementation((_request: unknown, options: { signal: AbortSignal }) => {
+      signal = options.signal;
+      return new Promise(() => {});
+    });
+    const wrapper = mountPage(); await flush();
+    const list = wrapper.findComponent(SessionList);
+    list.vm.$emit("select", 1); await flush();
+    const composer = wrapper.findComponent(ChatComposer);
+    composer.vm.$emit("update:modelValue", "question"); await flush();
+    composer.vm.$emit("send"); await flush();
+    list.vm.$emit("delete", { id: 1, title: "A", knowledgeBaseId: 7 }); await flush();
+    expect(signal.aborted).toBe(false);
+    expect(composer.props("streaming")).toBe(true);
+  });
+
   it("locks deletion before confirmation so a second confirm cannot open", async () => {
     let rejectConfirm!: (reason: unknown) => void;
     confirm.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectConfirm = reject; }));
@@ -141,6 +166,42 @@ describe("chat history page", () => {
     resolveHistory([{ id: 1, sessionId: 1, role: 1, content: "late", status: 2, userId: 1, createdAt: "t" }]);
     await flush();
     expect(wrapper.findComponent(MessageHistory).props("messages")).toEqual([]);
+  });
+
+  it("aborts the active stream before deleting its selected session", async () => {
+    let signal!: AbortSignal;
+    confirm.mockResolvedValue(undefined);
+    deleteSession.mockResolvedValue(undefined);
+    listMessages.mockResolvedValue([]);
+    streamChat.mockImplementation((_request: unknown, options: { signal: AbortSignal }) => {
+      signal = options.signal;
+      return new Promise(() => {});
+    });
+    const wrapper = mountPage(); await flush();
+    const list = wrapper.findComponent(SessionList);
+    list.vm.$emit("select", 1); await flush();
+    const composer = wrapper.findComponent(ChatComposer);
+    composer.vm.$emit("update:modelValue", "question"); await flush();
+    composer.vm.$emit("send"); await flush();
+    expect(signal.aborted).toBe(false);
+    list.vm.$emit("delete", { id: 1, title: "A", knowledgeBaseId: 7 }); await flush();
+    expect(signal.aborted).toBe(true);
+  });
+
+  it("aborts an active stream on component unmount", async () => {
+    let signal!: AbortSignal;
+    listMessages.mockResolvedValue([]);
+    streamChat.mockImplementation((_request: unknown, options: { signal: AbortSignal }) => {
+      signal = options.signal;
+      return new Promise(() => {});
+    });
+    const wrapper = mountPage(); await flush();
+    wrapper.findComponent(SessionList).vm.$emit("select", 1); await flush();
+    const composer = wrapper.findComponent(ChatComposer);
+    composer.vm.$emit("update:modelValue", "question"); await flush();
+    composer.vm.$emit("send"); await flush();
+    wrapper.unmount();
+    expect(signal.aborted).toBe(true);
   });
 
   it("uses the real v-auth directive to remove an element without ai:chat:list", () => {

@@ -18,8 +18,14 @@ describe("chat message history", () => {
   });
 
   it("renders valid sources and safely ignores invalid sourcesJson without HTML injection", () => {
-    const wrapper = mount(MessageHistory, { props: { selectedSessionId: 1, loading: false, messages: [message(2, 2, '[{"filename":"safe.pdf","page":3}]'), message(2, 2, "<img src=x onerror=alert(1)>")] }, global: { stubs } });
-    expect(wrapper.text()).toContain("safe.pdf · 3");
+    const wrapper = mount(MessageHistory, { props: { selectedSessionId: 1, loading: false, messages: [message(2, 2, '[{"document_id":1,"file_name":"safe.pdf","page":3}]'), message(2, 2, "<img src=x onerror=alert(1)>")] }, global: { stubs } });
+    expect(wrapper.text()).toContain("safe.pdf · 第 3 页");
     expect(wrapper.html()).not.toContain("<img src=x");
+  });
+
+  it("renders nullable source fields safely without object-storage details", () => {
+    const wrapper = mount(MessageHistory, { props: { selectedSessionId: 1, loading: false, messages: [message(2, 2, '[{"document_id":1,"file_name":null,"page":null,"objectKey":"private"}]')] }, global: { stubs } });
+    expect(wrapper.text()).toContain("文档");
+    expect(wrapper.text()).not.toContain("private");
   });
 });
