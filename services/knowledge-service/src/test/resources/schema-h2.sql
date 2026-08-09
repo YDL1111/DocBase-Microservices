@@ -100,6 +100,23 @@ CREATE TABLE IF NOT EXISTS knowledge_document_acl (
     UNIQUE (document_id, subject_type, subject_id, permission_type, delete_marker)
 );
 
+-- Lease timestamps are UTC LocalDateTime values, matching the MySQL V7 migration and application clock.
+CREATE TABLE IF NOT EXISTS knowledge_upload_request (
+    id                  BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    knowledge_base_id   BIGINT       NOT NULL,
+    user_id             BIGINT       NOT NULL,
+    client_request_id   VARCHAR(128) NOT NULL,
+    request_fingerprint CHAR(64)     NOT NULL,
+    object_key          VARCHAR(512) NOT NULL,
+    status              VARCHAR(32)  NOT NULL,
+    document_id         BIGINT,
+    lease_token         VARCHAR(64),
+    lease_expires_at    TIMESTAMP,
+    created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (knowledge_base_id, user_id, client_request_id)
+);
+
 CREATE TABLE IF NOT EXISTS event_outbox (
     event_id        CHAR(36)     NOT NULL PRIMARY KEY,
     aggregate_type  VARCHAR(64)  NOT NULL,

@@ -9,6 +9,36 @@ Gateway 路由到 `knowledge-service`。
 | --- | --- |
 | `/api/knowledge/**` | 知识库、目录、文档、成员接口 |
 
+## Secure multipart document upload
+
+`POST /api/knowledge/bases/{knowledgeBaseId}/documents/upload` accepts `multipart/form-data` and returns
+`ApiResponse<Long>` (`data` is the document ID). It requires `knowledge:document:create` or `admin:all`, and
+regular users must be EDITOR or above in the active knowledge base.
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `file` | yes | PDF, DOCX, XLSX, PPTX, or TXT; default limit 100 MiB |
+| `title` | no | Defaults to the filename without its extension |
+| `folderId` | no | Defaults to `0`; it must belong to this knowledge base |
+| `visibility` | no | One of `1`, `2`, `3`; defaults to `1` |
+| `clientRequestId` | yes | A 1-128 character idempotency key |
+
+The service validates the extension, declared Content-Type, non-empty size, and safe filename. It generates the
+object key itself in `knowledge/{knowledgeBaseId}/{yyyy}/{MM}/{uuid}/{safeFilename}`; clients must not send or
+control an object key. Reusing the same client request ID with the same validated metadata returns the original
+document ID. A different payload returns `IDEMPOTENCY_CONFLICT`.
+
+An in-progress request holds a server-generated lease token. Before the configurable
+`KNOWLEDGE_DOCUMENT_UPLOAD_LEASE_DURATION` (default `PT10M`, minimum `PT30S`) expires, a duplicate returns
+`UPLOAD_IN_PROGRESS`. After a crash and lease expiry, exactly one retry atomically takes over
+with a new token and object key; a stale attempt cannot complete, release, or delete the new attempt. Lease
+timestamps use UTC. If object storage reports an upload failure after persisting an object, the service attempts
+to delete only that attempt's object before releasing its lease; cleanup failures do not replace the upload error.
+
+The older JSON `POST /api/knowledge/bases/{knowledgeBaseId}/documents` endpoint is now **internal-only**. It
+requires an internal-registration JWT authority (or `admin:all`) and `X-Knowledge-Internal-Key` matching the
+private `KNOWLEDGE_INTERNAL_REGISTRATION_API_KEY` configuration. Browser clients must use multipart upload.
+
 ## 认证方式
 
 请求受保护接口时在 Header 中携带：
@@ -142,7 +172,7 @@ Authorization: Bearer <accessToken>
 
 查询文档详情。
 
-### POST /api/knowledge/bases/{id}/documents
+### POST /api/knowledge/bases/{id}/documents (internal compatibility only)
 
 需认证：`knowledge:document:create` 或 `admin:all`
 

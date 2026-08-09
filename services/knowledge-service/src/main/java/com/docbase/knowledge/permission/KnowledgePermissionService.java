@@ -115,6 +115,9 @@ public class KnowledgePermissionService {
         if (base == null) {
             throw new BusinessException("KNOWLEDGE_BASE_NOT_FOUND", "Knowledge base not found");
         }
+        if (base.getStatus() == null || base.getStatus() != 1) {
+            throw new BusinessException("KNOWLEDGE_BASE_DISABLED", "Knowledge base is disabled");
+        }
         return base;
     }
 }

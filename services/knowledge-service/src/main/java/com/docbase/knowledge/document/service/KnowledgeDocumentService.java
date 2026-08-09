@@ -10,6 +10,8 @@ import com.docbase.knowledge.document.domain.KnowledgeDocument;
 import com.docbase.knowledge.document.mapper.KnowledgeDocumentAclMapper;
 import com.docbase.knowledge.document.mapper.KnowledgeDocumentMapper;
 import com.docbase.knowledge.document.mapper.KnowledgeDocumentVersionMapper;
+import com.docbase.knowledge.document.mapper.KnowledgeUploadRequestMapper;
+import com.docbase.knowledge.document.domain.KnowledgeDocumentVersion;
 import com.docbase.knowledge.event.OutboxService;
 import com.docbase.knowledge.folder.mapper.KnowledgeFolderMapper;
 import com.docbase.knowledge.permission.KnowledgePermissionService;
@@ -31,6 +33,7 @@ public class KnowledgeDocumentService {
     private final KnowledgeFolderMapper folderMapper;
     private final KnowledgeDocumentVersionMapper documentVersionMapper;
     private final KnowledgeDocumentAclMapper documentAclMapper;
+    private final KnowledgeUploadRequestMapper uploadRequestMapper;
     private final KnowledgePermissionService permissionService;
     private final OutboxService outboxService;
 
@@ -38,12 +41,14 @@ public class KnowledgeDocumentService {
                                     KnowledgeFolderMapper folderMapper,
                                     KnowledgeDocumentVersionMapper documentVersionMapper,
                                     KnowledgeDocumentAclMapper documentAclMapper,
+                                    KnowledgeUploadRequestMapper uploadRequestMapper,
                                     KnowledgePermissionService permissionService,
                                     OutboxService outboxService) {
         this.documentMapper = documentMapper;
         this.folderMapper = folderMapper;
         this.documentVersionMapper = documentVersionMapper;
         this.documentAclMapper = documentAclMapper;
+        this.uploadRequestMapper = uploadRequestMapper;
         this.permissionService = permissionService;
         this.outboxService = outboxService;
     }
@@ -83,13 +88,32 @@ public class KnowledgeDocumentService {
      */
     @Transactional
     public Long registerDocument(Long knowledgeBaseId, KnowledgeDocument document, Long userId, boolean isAdmin) {
-        permissionService.requireActiveKnowledgeBase(knowledgeBaseId); // Verify base exists
-        permissionService.requirePermission(knowledgeBaseId, userId, isAdmin, 3, "Editor permission required");
+        validateUploadContext(knowledgeBaseId, document.getFolderId(), userId, isAdmin);
+        return registerDocumentInternal(knowledgeBaseId, document, null, null, userId);
+    }
 
-        // Validate folderId belongs to this knowledge base (if specified)
-        if (document.getFolderId() != null && document.getFolderId() != 0L) {
-            validateFolderBelongsToBase(document.getFolderId(), knowledgeBaseId);
+    /**
+     * Registers the metadata, initial version, and outbox event atomically after MinIO upload.
+     * The idempotency reservation is marked completed in the same database transaction.
+     */
+    @Transactional
+    public Long registerUploadedDocument(Long knowledgeBaseId, KnowledgeDocument document, Long uploadRequestId,
+                                         String leaseToken, Long userId, boolean isAdmin) {
+        validateUploadContext(knowledgeBaseId, document.getFolderId(), userId, isAdmin);
+        return registerDocumentInternal(knowledgeBaseId, document, uploadRequestId, leaseToken, userId);
+    }
+
+    /** Validate all resource-level checks before object storage, and repeat them at registration time. */
+    public void validateUploadContext(Long knowledgeBaseId, Long folderId, Long userId, boolean isAdmin) {
+        permissionService.requireActiveKnowledgeBase(knowledgeBaseId);
+        permissionService.requirePermission(knowledgeBaseId, userId, isAdmin, 3, "Editor permission required");
+        if (folderId != null && folderId != 0L) {
+            validateFolderBelongsToBase(folderId, knowledgeBaseId);
         }
+    }
+
+    private Long registerDocumentInternal(Long knowledgeBaseId, KnowledgeDocument document, Long uploadRequestId,
+                                          String leaseToken, Long userId) {
 
         document.setId(null);
         document.setKnowledgeBaseId(knowledgeBaseId);
@@ -102,18 +126,35 @@ public class KnowledgeDocumentService {
         document.setDeleted(0);
         documentMapper.insert(document);
 
-        // Write outbox event
+        KnowledgeDocumentVersion version = new KnowledgeDocumentVersion();
+        version.setDocumentId(document.getId());
+        version.setVersion(document.getVersion());
+        version.setOriginalFilename(document.getOriginalFilename());
+        version.setObjectKey(document.getObjectKey());
+        version.setContentType(document.getContentType());
+        version.setFileSize(document.getFileSize());
+        version.setChecksum(document.getChecksum());
+        version.setIngestStatus(document.getIngestStatus());
+        version.setCreatedBy(userId);
+        version.setDeleted(0);
+        documentVersionMapper.insert(version);
+
         outboxService.writeEvent(createKnowledgeEvent(
                 KnowledgeEvent.DOCUMENT_REGISTERED,
                 "document",
                 document.getId().toString(),
                 knowledgeBaseId,
                 document.getId(),
+                version.getId(),
                 document.getObjectKey(),
                 document.getOriginalFilename(),
                 document.getContentType(),
                 userId
         ));
+
+        if (uploadRequestId != null && uploadRequestMapper.completeIfLeaseOwner(uploadRequestId, leaseToken, document.getId()) != 1) {
+            throw new BusinessException("UPLOAD_LEASE_LOST", "Upload lease is no longer owned by this request");
+        }
 
         return document.getId();
     }
@@ -123,7 +164,7 @@ public class KnowledgeDocumentService {
      */
     private KnowledgeEvent createKnowledgeEvent(
             String eventType, String aggregateType, String aggregateId,
-            Long knowledgeBaseId, Long documentId, String objectKey,
+            Long knowledgeBaseId, Long documentId, Long versionId, String objectKey,
             String fileName, String contentType, Long userId) {
         return new KnowledgeEvent(
                 UUID.randomUUID(),
@@ -132,7 +173,7 @@ public class KnowledgeDocumentService {
                 aggregateId,
                 knowledgeBaseId,
                 documentId,
-                1L,  // versionId
+                versionId,
                 objectKey,
                 fileName != null ? fileName : "",
                 contentType != null ? contentType : "",
@@ -204,6 +245,7 @@ public class KnowledgeDocumentService {
                 documentId.toString(),
                 existing.getKnowledgeBaseId(),
                 documentId,
+                existing.getVersion() != null ? existing.getVersion().longValue() : null,
                 existing.getObjectKey(),
                 existing.getOriginalFilename(),
                 existing.getContentType(),

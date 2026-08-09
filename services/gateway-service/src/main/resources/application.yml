@@ -34,6 +34,8 @@ spring:
               uri: lb://knowledge-service
               predicates:
                 - Path=/api/knowledge/**
+              metadata:
+                response-timeout: 120000
             - id: ingest-service
               uri: lb://ingest-service
               predicates:

@@ -54,6 +54,10 @@ spring:
     publisher-returns: true
     template:
       mandatory: true
+  servlet:
+    multipart:
+      max-file-size: ${KNOWLEDGE_DOCUMENT_MAX_FILE_SIZE:100MB}
+      max-request-size: ${KNOWLEDGE_DOCUMENT_MAX_REQUEST_SIZE:101MB}
 
 mybatis-plus:
   configuration:
@@ -75,6 +79,16 @@ docbase:
     access-key: ${MINIO_APP_USER:docbase-app}
     secret-key: ${MINIO_APP_PASSWORD:change-me-minio-app}
     bucket: ${MINIO_BUCKET:docbase-documents}
+  document-upload:
+    max-file-size: ${KNOWLEDGE_DOCUMENT_MAX_FILE_SIZE:100MB}
+    lease-duration: ${KNOWLEDGE_DOCUMENT_UPLOAD_LEASE_DURATION:PT10M}
+    internal-registration-api-key: ${KNOWLEDGE_INTERNAL_REGISTRATION_API_KEY:}
+    allowed-content-types:
+      pdf: application/pdf
+      docx: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+      xlsx: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+      pptx: application/vnd.openxmlformats-officedocument.presentationml.presentation
+      txt: text/plain
   outbox:
     poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:5000}
     poll-batch-size: ${OUTBOX_POLL_BATCH_SIZE:10}

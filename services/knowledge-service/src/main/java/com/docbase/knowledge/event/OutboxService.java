@@ -205,7 +205,10 @@ public class OutboxService {
         node.put("aggregateId", event.aggregateId());
         node.put("knowledgeBaseId", event.knowledgeBaseId());
         node.put("documentId", event.documentId());
+        node.put("versionId", event.versionId());
         node.put("objectKey", event.objectKey());
+        node.put("fileName", event.fileName());
+        node.put("contentType", event.contentType());
         node.put("operatorId", event.operatorId());
         node.put("schemaVersion", event.schemaVersion());
         node.put("occurredAt", event.occurredAt().toString());

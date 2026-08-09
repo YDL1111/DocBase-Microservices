@@ -3,7 +3,9 @@ package com.docbase.knowledge.document.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.docbase.common.core.ApiResponse;
 import com.docbase.knowledge.document.domain.KnowledgeDocument;
+import com.docbase.knowledge.document.service.KnowledgeDocumentUploadService;
 import com.docbase.knowledge.document.service.KnowledgeDocumentService;
+import com.docbase.knowledge.config.DocumentUploadProperties;
 
 import java.util.List;
 import com.docbase.knowledge.permission.KnowledgeUserPrincipal;
@@ -11,17 +13,28 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 @RestController
 @RequestMapping("/api/knowledge")
 public class KnowledgeDocumentController {
 
     private final KnowledgeDocumentService documentService;
+    private final KnowledgeDocumentUploadService uploadService;
+    private final DocumentUploadProperties uploadProperties;
 
-    public KnowledgeDocumentController(KnowledgeDocumentService documentService) {
+    public KnowledgeDocumentController(KnowledgeDocumentService documentService,
+                                       KnowledgeDocumentUploadService uploadService,
+                                       DocumentUploadProperties uploadProperties) {
         this.documentService = documentService;
+        this.uploadService = uploadService;
+        this.uploadProperties = uploadProperties;
     }
 
     @GetMapping("/bases/{knowledgeBaseId}/documents")
@@ -60,11 +73,13 @@ public class KnowledgeDocumentController {
     }
 
     @PostMapping("/bases/{knowledgeBaseId}/documents")
-    @PreAuthorize("hasAuthority('knowledge:document:create') or hasAuthority('admin:all')")
+    @PreAuthorize("hasAuthority('knowledge:document:register:internal') or hasAuthority('admin:all')")
     public ApiResponse<Long> create(
             @PathVariable Long knowledgeBaseId,
             @Valid @RequestBody CreateDocumentRequest request,
+            @RequestHeader(value = "X-Knowledge-Internal-Key", required = false) String internalKey,
             @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
+        requireInternalRegistrationKey(internalKey);
         KnowledgeDocument doc = new KnowledgeDocument();
         doc.setFolderId(request.folderId() != null ? request.folderId() : 0L);
         doc.setTitle(request.title());
@@ -75,6 +90,20 @@ public class KnowledgeDocumentController {
         doc.setChecksum(request.checksum());
         doc.setVisibility(request.visibility());
         return ApiResponse.success(documentService.registerDocument(knowledgeBaseId, doc, principal.userId(), principal.admin()));
+    }
+
+    @PostMapping(value = "/bases/{knowledgeBaseId}/documents/upload", consumes = "multipart/form-data")
+    @PreAuthorize("hasAuthority('knowledge:document:create') or hasAuthority('admin:all')")
+    public ApiResponse<Long> upload(
+            @PathVariable Long knowledgeBaseId,
+            @RequestPart("file") MultipartFile file,
+            @RequestParam(required = false) String title,
+            @RequestParam(required = false) Long folderId,
+            @RequestParam(required = false) Integer visibility,
+            @RequestParam String clientRequestId,
+            @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
+        return ApiResponse.success(uploadService.upload(knowledgeBaseId, file, title, folderId, visibility,
+                clientRequestId, principal.userId(), principal.admin()));
     }
 
     @PutMapping("/documents/{documentId}")
@@ -110,6 +139,15 @@ public class KnowledgeDocumentController {
             Long fileSize,
             String checksum,
             Integer visibility) {}
+
+    private void requireInternalRegistrationKey(String suppliedKey) {
+        String configuredKey = uploadProperties.getInternalRegistrationApiKey();
+        if (configuredKey == null || configuredKey.isBlank() || suppliedKey == null
+                || !MessageDigest.isEqual(configuredKey.getBytes(StandardCharsets.UTF_8),
+                suppliedKey.getBytes(StandardCharsets.UTF_8))) {
+            throw new AccessDeniedException("internal registration required");
+        }
+    }
 
     public record UpdateDocumentRequest(
             @Size(max = 256) String title,

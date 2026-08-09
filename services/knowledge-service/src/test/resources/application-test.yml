@@ -46,3 +46,18 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
       id-type: auto
+
+docbase:
+  minio:
+    endpoint: http://localhost:9000
+    access-key: test-access-key
+    secret-key: test-secret-key
+    bucket: test-documents
+  document-upload:
+    max-file-size: 100MB
+    allowed-content-types:
+      pdf: application/pdf
+      docx: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+      xlsx: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+      pptx: application/vnd.openxmlformats-officedocument.presentationml.presentation
+      txt: text/plain

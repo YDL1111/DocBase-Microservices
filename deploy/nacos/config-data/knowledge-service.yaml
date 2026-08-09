@@ -2,3 +2,12 @@ docbase:
   knowledge:
     object-prefix: documents
     outbox-publish-batch-size: 50
+  document-upload:
+    max-file-size: ${KNOWLEDGE_DOCUMENT_MAX_FILE_SIZE:100MB}
+    lease-duration: ${KNOWLEDGE_DOCUMENT_UPLOAD_LEASE_DURATION:PT10M}
+    allowed-content-types:
+      pdf: application/pdf
+      docx: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+      xlsx: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+      pptx: application/vnd.openxmlformats-officedocument.presentationml.presentation
+      txt: text/plain
