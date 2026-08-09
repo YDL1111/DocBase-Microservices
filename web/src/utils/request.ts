@@ -25,8 +25,14 @@ import { message } from "./message";
 import progress from "./progress";
 
 /** 扩展请求配置：加入自定义 _retry 标记 */
+export interface RequestConfig extends AxiosRequestConfig {
+  /** The caller owns user-facing failure feedback for this request. */
+  skipGlobalErrorMessage?: boolean;
+}
+
 interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
+  skipGlobalErrorMessage?: boolean;
 }
 
 const { VITE_APP_BASE_API } = import.meta.env;
@@ -51,7 +57,6 @@ const service: AxiosInstance = axios.create({
   baseURL,
   timeout: 15000,
   headers: {
-    "Content-Type": "application/json",
     Accept: "application/json, text/plain, */*",
     "X-Requested-With": "XMLHttpRequest"
   }
@@ -118,14 +123,16 @@ service.interceptors.response.use(
     }
 
     // 未按 ApiResponse 外壳返回，视为异常
+    const skipGlobalErrorMessage = (response.config as CustomAxiosRequestConfig)
+      .skipGlobalErrorMessage;
     if (data == null || typeof data.success !== "boolean") {
-      message.error("服务器返回数据结构异常");
+      if (!skipGlobalErrorMessage) message.error("服务器返回数据结构异常");
       return Promise.reject(new Error("malformed response"));
     }
 
     // 业务失败
     if (!data.success) {
-      message.error(data.message || "请求失败");
+      if (!skipGlobalErrorMessage) message.error(data.message || "请求失败");
       return Promise.reject(
         new Error(data.code || data.message || "business error")
       );
@@ -201,14 +208,16 @@ service.interceptors.response.use(
     }
 
     // 其他 HTTP 错误
-    if (status >= SERVICE_UNAVAILABLE) {
-      message.error("服务暂不可用，请稍后重试");
-    } else if (status === 403) {
-      message.error("没有访问权限");
-    } else if (status === 404) {
-      message.error("请求资源不存在");
-    } else if (status != null && status < 500 && status >= 400) {
-      message.error(error?.response?.data?.message || "请求异常");
+    if (!originalConfig?.skipGlobalErrorMessage) {
+      if (status >= SERVICE_UNAVAILABLE) {
+        message.error("服务暂不可用，请稍后重试");
+      } else if (status === 403) {
+        message.error("没有访问权限");
+      } else if (status === 404) {
+        message.error("请求资源不存在");
+      } else if (status != null && status < 500 && status >= 400) {
+        message.error(error?.response?.data?.message || "请求异常");
+      }
     }
 
     return Promise.reject(error);
@@ -218,24 +227,24 @@ service.interceptors.response.use(
 /* ---------------- 对外方法 ---------------- */
 
 export const http = {
-  get<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
+  get<T = unknown>(url: string, config?: RequestConfig): Promise<T> {
     return service.get(url, config) as unknown as Promise<T>;
   },
   post<T = unknown>(
     url: string,
     data?: unknown,
-    config?: AxiosRequestConfig
+    config?: RequestConfig
   ): Promise<T> {
     return service.post(url, data, config) as unknown as Promise<T>;
   },
   put<T = unknown>(
     url: string,
     data?: unknown,
-    config?: AxiosRequestConfig
+    config?: RequestConfig
   ): Promise<T> {
     return service.put(url, data, config) as unknown as Promise<T>;
   },
-  delete<T = unknown>(url: string, config?: AxiosRequestConfig): Promise<T> {
+  delete<T = unknown>(url: string, config?: RequestConfig): Promise<T> {
     return service.delete(url, config) as unknown as Promise<T>;
   }
 };

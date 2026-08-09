@@ -158,6 +158,15 @@ export interface DocumentQuery {
   status?: number;
 }
 
+/** Browser-to-Gateway multipart upload request. Object storage details never leave the server. */
+export interface UploadDocumentRequest {
+  file: File;
+  clientRequestId: string;
+  title?: string;
+  folderId?: number;
+  visibility?: number;
+}
+
 /** 成员实体（对应 /api/knowledge/bases/{kbId}/members） */
 export interface KnowledgeMember {
   id: number;

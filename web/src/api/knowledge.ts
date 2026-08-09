@@ -20,6 +20,7 @@ import type {
   UpdateFolderRequest,
   KnowledgeDocument,
   DocumentQuery,
+  UploadDocumentRequest,
   KnowledgeMember,
   AddMemberRequest,
   UpdateMemberRequest
@@ -143,6 +144,46 @@ export function getDocument(documentId: number): Promise<KnowledgeDocument> {
 /** 删除文档 */
 export function deleteDocument(documentId: number): Promise<void> {
   return http.delete<void>(`/api/knowledge/documents/${documentId}`);
+}
+
+/** Gateway upload timeout matches the Knowledge route's 120 second response timeout. */
+export const DOCUMENT_UPLOAD_TIMEOUT = 120_000;
+
+/**
+ * Upload one document through Gateway. Do not set Content-Type: Axios/browser supplies the
+ * multipart boundary for FormData, and only the server is allowed to create an object key.
+ */
+export function uploadDocument(
+  knowledgeBaseId: number,
+  request: UploadDocumentRequest,
+  options?: {
+    onUploadProgress?: (percent: number) => void;
+    signal?: AbortSignal;
+  }
+): Promise<number> {
+  const formData = new FormData();
+  formData.append("file", request.file);
+  formData.append("clientRequestId", request.clientRequestId);
+  if (request.title !== undefined) formData.append("title", request.title);
+  if (request.folderId !== undefined) formData.append("folderId", String(request.folderId));
+  if (request.visibility !== undefined) formData.append("visibility", String(request.visibility));
+
+  return http.post<number>(
+    `/api/knowledge/bases/${knowledgeBaseId}/documents/upload`,
+    formData,
+    {
+      timeout: DOCUMENT_UPLOAD_TIMEOUT,
+      signal: options?.signal,
+      // The dialog maps upload-specific errors to one clear user-facing message.
+      skipGlobalErrorMessage: true,
+      onUploadProgress: event => {
+        const total = event.total;
+        const raw = total && total > 0 ? (event.loaded / total) * 100 : 0;
+        const percent = Number.isFinite(raw) ? Math.min(100, Math.max(0, Math.round(raw))) : 0;
+        options?.onUploadProgress?.(percent);
+      }
+    }
+  );
 }
 
 /* ========================= 成员 ========================= */

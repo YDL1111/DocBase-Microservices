@@ -39,6 +39,13 @@ The older JSON `POST /api/knowledge/bases/{knowledgeBaseId}/documents` endpoint 
 requires an internal-registration JWT authority (or `admin:all`) and `X-Knowledge-Internal-Key` matching the
 private `KNOWLEDGE_INTERNAL_REGISTRATION_API_KEY` configuration. Browser clients must use multipart upload.
 
+### Browser upload behavior
+
+The web client sends one file at a time through Gateway with a per-request 120 second timeout. It uses a UUID
+`clientRequestId` for each new selection, reuses that UUID only when a network/timeout/5xx result is uncertain,
+and creates a new UUID after file or metadata changes. Browser progress reports only transfer to Gateway/Knowledge;
+the document list separately polls `ingestStatus` values `1` (pending) and `2` (processing) every four seconds.
+
 ## 认证方式
 
 请求受保护接口时在 Header 中携带：
