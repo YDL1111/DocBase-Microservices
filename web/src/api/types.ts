@@ -75,6 +75,53 @@ export interface PageResult<T> {
   pages: number;
 }
 
+/* ============================================================
+ * AI Chat session history (Phase 4A)
+ * ============================================================ */
+
+export interface ChatSession {
+  id: number;
+  userId: number;
+  knowledgeBaseId: number | null;
+  title: string;
+  status: number;
+  createdAt: string;
+  updatedAt: string;
+  deleted?: number;
+}
+
+export interface CreateChatSessionRequest {
+  knowledgeBaseId: number | null;
+  title: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  sessionId: number;
+  userId: number;
+  role: number;
+  content: string;
+  status: number;
+  clientRequestId?: string | null;
+  sourcesJson?: string | null;
+  errorCode?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+  deleted?: number;
+}
+
+export const ChatSessionStatus = { ACTIVE: 1, ARCHIVED: 2 } as const;
+export const ChatMessageRole = { USER: 1, ASSISTANT: 2, SYSTEM: 3 } as const;
+export const ChatMessageStatus = { STREAMING: 1, COMPLETED: 2, FAILED: 3, CANCELLED: 4 } as const;
+
+export function chatMessageRoleLabel(role: number): string {
+  return role === ChatMessageRole.USER ? "用户" : role === ChatMessageRole.ASSISTANT ? "助手" : role === ChatMessageRole.SYSTEM ? "系统" : "未知角色";
+}
+
+export function chatMessageStatusLabel(status: number): string {
+  return status === ChatMessageStatus.STREAMING ? "生成中" : status === ChatMessageStatus.COMPLETED ? "已完成" : status === ChatMessageStatus.FAILED ? "失败" : status === ChatMessageStatus.CANCELLED ? "已取消" : "未知状态";
+}
+
 /** 知识库实体（对应 /api/knowledge/bases） */
 export interface KnowledgeBase {
   id: number;

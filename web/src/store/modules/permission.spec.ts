@@ -64,6 +64,19 @@ describe("permission store - component registry", () => {
     expect(route.path).toBe("/knowledge/:id");
   });
 
+  it("nodeToRoute maps AiChat to the real Chat page and excludes button permissions", async () => {
+    const store = usePermissionStore();
+    const route = store.nodeToRoute(makeMenuNode({
+      menuId: 40,
+      routerName: "AiChat",
+      path: "/ai/chat",
+      permission: "ai:chat:list"
+    }));
+    expect(route.path).toBe("/ai/chat");
+    expect((await (route.component as () => Promise<any>)()).default.name).toBe("AiChat");
+    expect(store.buildRoutes([makeMenuNode({ menuId: 41, routerName: "", isButton: 1, permission: "ai:chat:query" })])).toEqual([]);
+  });
+
   it("未注册的 routerName 应回退到占位组件", () => {
     const store = usePermissionStore();
     const node = makeMenuNode({
