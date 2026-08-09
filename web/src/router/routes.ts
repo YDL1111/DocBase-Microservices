@@ -39,6 +39,12 @@ export const INNER_ROUTES: RouteRecordRaw[] = [
     name: "KnowledgeDetail",
     component: () => import("@/views/knowledge/detail.vue"),
     meta: { title: "知识库详情", hidden: true }
+  },
+  {
+    path: "/ingest/tasks/:taskId",
+    name: "IngestTaskDetail",
+    component: () => import("@/views/ingest/detail.vue"),
+    meta: { title: "导入任务详情", hidden: true }
   }
 ];
 

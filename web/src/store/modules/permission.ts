@@ -42,7 +42,9 @@ const RouterViewWrapper = () => import("@/views/route-view.vue");
 const componentRegistry: Record<string, () => Promise<any>> = {
   Knowledge: RouterViewWrapper,
   KnowledgeList: () => import("@/views/knowledge/list.vue"),
-  KnowledgeDetail: () => import("@/views/knowledge/detail.vue")
+  KnowledgeDetail: () => import("@/views/knowledge/detail.vue"),
+  IngestTaskDir: RouterViewWrapper,
+  IngestTask: () => import("@/views/ingest/list.vue")
 };
 
 /** 根据 routerName 解析组件，未命中则回退占位页 */

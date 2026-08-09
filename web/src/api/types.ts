@@ -244,3 +244,163 @@ export function documentStatusLabel(status: number): string {
       return "未知";
   }
 }
+
+/* ============================================================
+ * Ingest 导入任务相关类型
+ * 对应 ingest-service 的 IngestTaskController 与 IngestTask 实体
+ * ============================================================ */
+
+/** 导入任务实体（对应 /api/knowledge/bases 和 /api/ingest/tasks） */
+export interface IngestTask {
+  id: number;
+  eventId: string;
+  knowledgeBaseId: number;
+  documentId: number;
+  versionId: number;
+  objectKey: string;
+  fileName: string;
+  contentType: string;
+  taskType: string;
+  status: string;
+  attemptCount: number;
+  lastError: string;
+  nextRetryAt: string;
+  pythonKbId: string;
+  pythonDocId: string;
+  chunkCount: number;
+  createdBy: number;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string;
+  finishedAt: string;
+}
+
+/** 任务列表查询参数（仅支持 current/size/status） */
+export interface IngestTaskQuery {
+  current?: number;
+  size?: number;
+  status?: string;
+}
+
+/** 任务状态枚举 */
+export const IngestTaskStatusEnum = {
+  PENDING: "PENDING",
+  PROCESSING: "PROCESSING",
+  DISPATCHED: "DISPATCHED",
+  SUCCEEDED: "SUCCEEDED",
+  FAILED: "FAILED",
+  RETRY_WAIT: "RETRY_WAIT",
+  DEAD: "DEAD",
+  CANCELLED: "CANCELLED"
+} as const;
+
+/** 需要轮询的活跃状态 */
+export const ACTIVE_STATUSES: string[] = [
+  IngestTaskStatusEnum.PENDING,
+  IngestTaskStatusEnum.PROCESSING,
+  IngestTaskStatusEnum.DISPATCHED,
+  IngestTaskStatusEnum.RETRY_WAIT
+];
+
+/** 终态状态 */
+export const TERMINAL_STATUSES: string[] = [
+  IngestTaskStatusEnum.SUCCEEDED,
+  IngestTaskStatusEnum.FAILED,
+  IngestTaskStatusEnum.DEAD,
+  IngestTaskStatusEnum.CANCELLED
+];
+
+/** 可重试状态 */
+export const RETRYABLE_STATUSES: string[] = [
+  IngestTaskStatusEnum.FAILED,
+  IngestTaskStatusEnum.DEAD
+];
+
+/** 可取消状态 */
+export const CANCELABLE_STATUSES: string[] = [
+  IngestTaskStatusEnum.PENDING,
+  IngestTaskStatusEnum.RETRY_WAIT
+];
+
+/** 任务状态标签（用于 IngestTask 字符串状态） */
+export function ingestTaskStatusLabel(status: string): string {
+  switch (status) {
+    case IngestTaskStatusEnum.PENDING:
+      return "待处理";
+    case IngestTaskStatusEnum.PROCESSING:
+      return "处理中";
+    case IngestTaskStatusEnum.DISPATCHED:
+      return "已分发";
+    case IngestTaskStatusEnum.SUCCEEDED:
+      return "已完成";
+    case IngestTaskStatusEnum.FAILED:
+      return "失败";
+    case IngestTaskStatusEnum.RETRY_WAIT:
+      return "等待重试";
+    case IngestTaskStatusEnum.DEAD:
+      return "永久失败";
+    case IngestTaskStatusEnum.CANCELLED:
+      return "已取消";
+    default:
+      return "未知";
+  }
+}
+
+/** 任务状态标签类型（用于 Element Plus Tag 组件） */
+export function ingestTaskStatusTagType(
+  status: string
+): "primary" | "success" | "info" | "warning" | "danger" | "" {
+  switch (status) {
+    case IngestTaskStatusEnum.PENDING:
+      return "info";
+    case IngestTaskStatusEnum.PROCESSING:
+    case IngestTaskStatusEnum.DISPATCHED:
+      return "primary";
+    case IngestTaskStatusEnum.SUCCEEDED:
+      return "success";
+    case IngestTaskStatusEnum.FAILED:
+    case IngestTaskStatusEnum.RETRY_WAIT:
+      return "warning";
+    case IngestTaskStatusEnum.DEAD:
+    case IngestTaskStatusEnum.CANCELLED:
+      return "danger";
+    default:
+      return "";
+  }
+}
+
+/** 任务类型标签 */
+export function ingestTaskTypeLabel(taskType: string): string {
+  switch (taskType) {
+    case "IMPORT":
+      return "导入";
+    case "REIMPORT":
+      return "重新导入";
+    case "RETRY":
+      return "重试";
+    case "DELETE":
+      return "删除";
+    default:
+      return "未知";
+  }
+}
+
+/** 判断是否为活跃状态（需要轮询） */
+export function isActiveStatus(status: string): boolean {
+  return ACTIVE_STATUSES.includes(status);
+}
+
+/** 判断是否为终态（停止轮询） */
+export function isTerminalStatus(status: string): boolean {
+  return TERMINAL_STATUSES.includes(status);
+}
+
+/** 判断是否可重试 */
+export function isRetryableStatus(status: string): boolean {
+  return RETRYABLE_STATUSES.includes(status);
+}
+
+/** 判断是否可取消 */
+export function isCancelableStatus(status: string): boolean {
+  return CANCELABLE_STATUSES.includes(status);
+}
