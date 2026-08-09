@@ -118,6 +118,59 @@ describe("request layer - interceptors", () => {
   });
 });
 
+describe("shared refresh across Axios and SSE", () => {
+  it("starts only one refresh when both callers receive 401", async () => {
+    sessionStorage.clear();
+    vi.resetModules();
+    sessionStorage.setItem("docbase_access_token", "old-token");
+    sessionStorage.setItem("docbase_refresh_token", "old-refresh");
+
+    let axiosErrorHandler: any;
+    const replay = vi.fn().mockResolvedValue({ data: { success: true, data: {} }, config: {} });
+    const instance = Object.assign(replay, {
+      interceptors: {
+        request: { use: vi.fn() },
+        response: { use: vi.fn((_success: any, failure: any) => { axiosErrorHandler = failure; }) }
+      },
+      get: replay,
+      post: replay
+    });
+    vi.spyOn(axios, "create").mockReturnValue(instance as any);
+
+    let resolveRefresh!: (value: unknown) => void;
+    const refresh = vi.spyOn(axios, "post").mockImplementation(() => new Promise(resolve => { resolveRefresh = resolve; }) as any);
+    await vi.importActual("./request");
+    const { streamChat } = await import("@/api/chat-stream");
+
+    const encoder = new TextEncoder();
+    let fetchCalls = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
+      fetchCalls += 1;
+      if (fetchCalls === 1) return Promise.resolve(new Response("", { status: 401 }));
+      return Promise.resolve(new Response(new ReadableStream({
+        start(controller) { controller.enqueue(encoder.encode('data: {"type":"done","data":null}\n\n')); controller.close(); }
+      }), { headers: { "content-type": "text/event-stream" } }));
+    }));
+
+    const axiosRequest = axiosErrorHandler({
+      response: { status: 401 },
+      config: { url: "/api/orders", headers: { set: vi.fn() } }
+    });
+    const streamRequest = streamChat(
+      { sessionId: 1, knowledgeBaseId: null, question: "q", clientRequestId: "id" },
+      { onEvent: vi.fn() }
+    );
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    resolveRefresh({ data: { success: true, data: { accessToken: "new-token", refreshToken: "new-refresh" } } });
+    await Promise.all([axiosRequest, streamRequest]);
+    expect(refresh).toHaveBeenCalledOnce();
+
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    sessionStorage.clear();
+  });
+});
+
 /**
  * 刷新风暴防护的端到端行为测试。
  *

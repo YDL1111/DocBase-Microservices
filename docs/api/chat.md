@@ -46,6 +46,15 @@ data: {"type":"error","data":{"code":"RAG_UNAVAILABLE","message":"AI 服务暂�
 
 错误码：`INVALID_INPUT`、`QUESTION_TOO_LONG`、`FORBIDDEN`、`KB_MISMATCH`、`CONCURRENT_STREAM_LIMIT`、`DUPLICATE_REQUEST`、`RAG_UNAVAILABLE`、`RAG_TIMEOUT`、`RAG_ERROR`、`RAG_INCOMPLETE`、`NOT_IMPLEMENTED`、`INTERNAL_ERROR`、`STREAM_ERROR`
 
+## Browser stream client
+
+The browser client uses `fetch` with `POST /api/ai/chat/stream`, JSON request data, and an `Authorization` header. It does not use `EventSource` (which cannot send this POST body) or Axios for the streaming response.
+
+- A `401` received before any SSE data triggers the shared token refresh coordinator, then retries the exact request once. Network failures, `5xx`, `403`, and a second `401` are not retried automatically.
+- `clientRequestId` is required by the client API. Generation and recovery policy belong to Phase 4C.
+- EOF without a `done` or `error` event is an incomplete stream. A user cancellation is propagated through `AbortSignal` to fetch.
+- After a `done` or `error` event the client keeps reading until the server closes the stream, while ignoring any later events, so the server can persist its terminal state normally.
+
 ## 数据库
 
 - `ai_chat_session`：会话主表
