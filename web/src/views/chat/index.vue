@@ -8,7 +8,7 @@ import type { ChatSession, CreateChatSessionRequest, KnowledgeBase } from "@/api
 import { message } from "@/utils/message";
 import { useUserStoreHook } from "@/store/modules/user";
 import { useChatStream } from "./composables/use-chat-stream";
-import { toChatViewMessage, type ChatViewMessage } from "./chat-ui";
+import { toChatViewMessage, RecoveryStatus, type ChatViewMessage } from "./chat-ui";
 import SessionList from "./components/session-list.vue";
 import MessageHistory from "./components/message-history.vue";
 import ChatComposer from "./components/chat-composer.vue";
@@ -36,6 +36,10 @@ let messageSequence = 0;
 let listInFlight = false;
 let pendingListRefresh = false;
 let pendingSelectedSessionId: number | null = null;
+let refreshInFlight = false;
+let refreshOwner = 0;
+let messageLoadingOwner = 0;
+let pendingManualRefresh = false;
 
 function currentSession(sessionId: number): boolean { return mounted && selectedSessionId.value === sessionId; }
 function clearMessages(): void { messages.value = []; }
@@ -54,11 +58,82 @@ const canSend = computed(() => {
   const session = selectedSession();
   return canQuery.value
     && chatStream.canAcceptInput.value
+    && !chatStream.serverBusy.value
     && !messageLoading.value
     && !!session
     && Number.isSafeInteger(session.knowledgeBaseId)
     && (session.knowledgeBaseId ?? 0) > 0;
 });
+
+function refreshMessages(): void {
+  const sessionId = selectedSessionId.value;
+  if (sessionId === null) return;
+  // Never let a history response clobber a live temporary stream.
+  if (chatStream.streaming.value || chatStream.cancelling.value || chatStream.draining.value) return;
+  // When a recovery attempt is outstanding, route the refresh through the
+  // composable's reconciliation so the attempt is updated/cleared together with
+  // the message list — the page and composable must not diverge.
+  const attempt = chatStream.attempt.value;
+  if (attempt && (attempt.status === RecoveryStatus.UNCERTAIN || attempt.status === RecoveryStatus.RETRYABLE)) {
+    chatStream.recheck(attempt);
+    return;
+  }
+  if (refreshInFlight) { pendingManualRefresh = true; return; }
+  void forceHistoryRefresh(sessionId);
+}
+
+async function forceHistoryRefresh(sessionId: number): Promise<void> {
+  const expectedSession = sessionId;
+  // Take ownership tokens. refreshOwner guards the manual-refresh lock
+  // (refreshInFlight); messageLoadingOwner guards the shared messageLoading flag.
+  // A stale request releases neither if a newer request has taken over.
+  const owner = ++refreshOwner;
+  const loadOwner = ++messageLoadingOwner;
+  refreshInFlight = true;
+  const sequence = ++messageSequence;
+  messageLoading.value = true;
+  try {
+    const result = await listChatMessages(sessionId);
+    if (!mounted || sequence !== messageSequence || selectedSessionId.value !== expectedSession) return;
+    messages.value = result.map(toChatViewMessage);
+  } catch {
+    if (mounted && sequence === messageSequence && selectedSessionId.value === expectedSession) {
+      // Keep existing messages on failure — never flash blank.
+      message.warning("刷新消息失败，已保留当前内容。");
+    }
+  } finally {
+    if (!mounted) return;
+    // Only the latest refresh owner may clear the refresh lock and replay.
+    if (owner === refreshOwner) {
+      refreshInFlight = false;
+      if (pendingManualRefresh && selectedSessionId.value === expectedSession) {
+        pendingManualRefresh = false;
+        void forceHistoryRefresh(expectedSession);
+      }
+    }
+    // Only the latest message-loading owner may turn off the indicator.
+    // This stops an older refresh from clearing the flag while a newer
+    // session load (or newer refresh) is still running.
+    if (loadOwner === messageLoadingOwner) {
+      messageLoading.value = false;
+    }
+  }
+}
+
+function retryAttempt(): void {
+  const target = chatStream.attempt.value;
+  if (!target || target.status !== RecoveryStatus.RETRYABLE) return;
+  const session = selectedSession();
+  if (!session) return;
+  if (chatStream.retry(target)) question.value = "";
+}
+
+function recheckAttempt(): void {
+  const target = chatStream.attempt.value;
+  if (!target) return;
+  if (target.status !== RecoveryStatus.UNCERTAIN && target.status !== RecoveryStatus.RETRYABLE && target.status !== RecoveryStatus.RECHECKING) return;
+  chatStream.recheck(target);
+}
 
 async function loadSessions(force = false): Promise<void> {
   if (listInFlight) { if (force) pendingListRefresh = true; return; }
@@ -99,10 +174,19 @@ async function loadSessions(force = false): Promise<void> {
 async function selectSession(sessionId: number, source: "user" | "automatic" = "user"): Promise<void> {
   if (source === "user" && pendingSelectedSessionId !== null && sessionId !== pendingSelectedSessionId) pendingSelectedSessionId = null;
   if (selectedSessionId.value === sessionId && !messageLoading.value) return;
-  if (selectedSessionId.value !== sessionId) chatStream.cancel("session-change");
+  if (selectedSessionId.value !== sessionId) {
+    chatStream.cancel("session-change");
+    // A pending manual refresh belongs to the previous session; a new session
+    // load must not carry it over, or the new session will fire a stray replay.
+    pendingManualRefresh = false;
+  }
   selectedSessionId.value = sessionId;
   clearMessages();
   const sequence = ++messageSequence;
+  // Claim ownership of the shared messageLoading flag. Only the latest session
+  // load may clear it, so an older refresh (or a superseded load) cannot turn
+  // off the indicator while the current load is still in flight.
+  const loadOwner = ++messageLoadingOwner;
   messageLoading.value = true;
   try {
     const result = await listChatMessages(sessionId);
@@ -111,7 +195,9 @@ async function selectSession(sessionId: number, source: "user" | "automatic" = "
   } catch {
     if (currentSession(sessionId) && sequence === messageSequence) clearMessages();
   } finally {
-    if (currentSession(sessionId) && sequence === messageSequence) messageLoading.value = false;
+    if (currentSession(sessionId) && sequence === messageSequence && loadOwner === messageLoadingOwner) {
+      messageLoading.value = false;
+    }
   }
 }
 
@@ -147,6 +233,14 @@ async function createSession(request: CreateChatSessionRequest): Promise<void> {
 async function removeSession(session: ChatSession): Promise<void> {
   const targetSessionId = session.id;
   if (deletingSessionId.value !== null) return;
+  // A session undergoing background recovery must not be deleted: its history
+  // is still needed to observe the terminal assistant state and lift the
+  // user-level server-busy barrier. The UI keeps its delete button disabled,
+  // but guard here too in case the event arrives from another path.
+  if (chatStream.backgroundRecoverySessionId.value === targetSessionId) {
+    message.warning("会话正在后台核对生成结果，暂不可删除。");
+    return;
+  }
   deletingSessionId.value = targetSessionId;
   try {
     await ElMessageBox.confirm(`确定删除会话“${session.title.trim() || "未命名会话"}”吗？`, "删除确认", { type: "warning" });
@@ -194,14 +288,28 @@ onUnmounted(() => {
   invalidateHistory();
   pendingListRefresh = false;
   pendingSelectedSessionId = null;
+  pendingManualRefresh = false;
 });
 </script>
 
 <template>
   <main v-auth="'ai:chat:list'" class="chat-page">
-    <SessionList :sessions="sessions" :selected-session-id="selectedSessionId" :loading="sessionLoading" :deleting-session-id="deletingSessionId" :current="pagination.current" :size="pagination.size" :total="pagination.total" @create="openCreate" @select="selectSession" @delete="removeSession" @refresh="loadSessions(true)" @page-change="changePage" @size-change="changeSize" />
+    <SessionList :sessions="sessions" :selected-session-id="selectedSessionId" :loading="sessionLoading" :deleting-session-id="deletingSessionId" :locked-session-id="chatStream.backgroundRecoverySessionId.value" :current="pagination.current" :size="pagination.size" :total="pagination.total" @create="openCreate" @select="selectSession" @delete="removeSession" @refresh="loadSessions(true)" @page-change="changePage" @size-change="changeSize" />
     <section class="chat-workspace">
-      <MessageHistory :messages="messages" :loading="messageLoading" :selected-session-id="selectedSessionId" />
+      <MessageHistory
+        :messages="messages"
+        :loading="messageLoading"
+        :selected-session-id="selectedSessionId"
+        :streaming="chatStream.streaming.value"
+        :syncing="chatStream.syncing.value"
+        :cancelling="chatStream.cancelling.value"
+        :draining="chatStream.draining.value"
+        :can-accept-input="chatStream.canAcceptInput.value"
+        :attempt="chatStream.attempt.value"
+        @refresh="refreshMessages"
+        @retry="retryAttempt"
+        @recheck="recheckAttempt"
+      />
       <ChatComposer v-model="question" :streaming="chatStream.streaming.value" :can-send="canSend" :max-length="4000" @send="sendQuestion" @stop="chatStream.cancel('user')" />
     </section>
     <CreateSessionDialog v-model="createVisible" :knowledge-bases="knowledgeBases" :loading-knowledge-bases="loadingKnowledgeBases" :creating="creating" @opened="loadKnowledgeBases" @create="createSession" />

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-const props = defineProps<{ modelValue: string; streaming: boolean; canSend: boolean; maxLength?: number }>();
+const props = defineProps<{ modelValue: string; streaming: boolean; canSend: boolean; settling?: boolean; maxLength?: number }>();
 const emit = defineEmits<{ "update:modelValue": [value: string]; send: []; stop: [] }>();
 const limit = computed(() => props.maxLength ?? 4000);
+/** The input stays editable while draining/cancelling so edits are not lost, but sending is disabled. */
+const inputDisabled = computed(() => props.streaming);
 
 function submit(): void {
   if (props.streaming) emit("stop");
@@ -27,7 +29,7 @@ function onKeydown(event: KeyboardEvent): void {
       :maxlength="limit"
       show-word-limit
       placeholder="输入问题，Enter 发送，Shift + Enter 换行"
-      :disabled="streaming"
+      :disabled="inputDisabled"
       @update:model-value="emit('update:modelValue', $event)"
       @keydown="onKeydown"
     />

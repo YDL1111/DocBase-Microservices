@@ -1,10 +1,23 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { Refresh } from "@element-plus/icons-vue";
 import { ChatMessageRole, ChatMessageStatus, chatMessageRoleLabel, chatMessageStatusLabel } from "@/api/types";
 import type { ChatSource } from "@/api/chat-stream";
-import type { ChatViewMessage } from "../chat-ui";
+import { RecoveryStatus, recoveryStatusText, type ChatViewMessage } from "../chat-ui";
 
-const props = defineProps<{ messages: ChatViewMessage[]; loading: boolean; selectedSessionId: number | null }>();
+const props = defineProps<{
+  messages: ChatViewMessage[];
+  loading: boolean;
+  selectedSessionId: number | null;
+  streaming: boolean;
+  syncing: boolean;
+  cancelling: boolean;
+  draining: boolean;
+  canAcceptInput: boolean;
+  attempt: { status: string; generation: number } | null;
+}>();
+
+const emit = defineEmits<{ refresh: []; retry: []; recheck: [] }>();
 
 function isSafeSource(source: unknown): source is ChatSource {
   if (!source || typeof source !== "object" || Array.isArray(source)) return false;
@@ -31,10 +44,22 @@ function roleClass(role: number): string { return role === ChatMessageRole.USER 
 function statusType(status: number): "success" | "warning" | "danger" | "info" { return status === ChatMessageStatus.COMPLETED ? "success" : status === ChatMessageStatus.FAILED ? "danger" : status === ChatMessageStatus.CANCELLED ? "warning" : "info"; }
 const hasSession = computed(() => props.selectedSessionId !== null);
 const visibleMessages = computed(() => props.messages.filter(item => !(item.role === ChatMessageRole.ASSISTANT && item.status === ChatMessageStatus.COMPLETED && !item.content.trim() && messageSources(item).length === 0)));
+
+const showRetry = computed(() => props.attempt?.status === RecoveryStatus.RETRYABLE);
+const showRecheck = computed(() => props.attempt?.status === RecoveryStatus.UNCERTAIN || props.attempt?.status === RecoveryStatus.RETRYABLE || props.attempt?.status === RecoveryStatus.RECHECKING);
+const statusText = computed(() => props.attempt ? recoveryStatusText(props.attempt.status as any) : "");
+const inputLocked = computed(() => props.streaming || props.cancelling || props.draining);
 </script>
 
 <template>
   <section class="message-history" aria-live="polite">
+    <div v-if="hasSession" class="message-history__toolbar">
+      <span v-if="statusText" class="message-history__status" role="status">{{ statusText }}</span>
+      <span v-else class="message-history__spacer" />
+      <el-button :icon="Refresh" :loading="syncing" :disabled="inputLocked || syncing" size="small" aria-label="刷新消息历史" @click="emit('refresh')">刷新</el-button>
+      <el-button v-if="showRecheck" :loading="attempt?.status === RecoveryStatus.RECHECKING || syncing" :disabled="inputLocked || syncing" size="small" @click="emit('recheck')">重新检查</el-button>
+      <el-button v-if="showRetry" :disabled="!canAcceptInput || inputLocked" size="small" type="primary" @click="emit('retry')">重试</el-button>
+    </div>
     <el-empty v-if="!hasSession" description="选择一个会话以查看历史消息" />
     <el-skeleton v-else-if="loading" :rows="5" animated />
     <el-empty v-else-if="visibleMessages.length === 0" description="该会话暂无历史消息" />
@@ -44,6 +69,7 @@ const visibleMessages = computed(() => props.messages.filter(item => !(item.role
         <p v-if="item.content">{{ item.content }}</p>
         <p v-else-if="item.status === ChatMessageStatus.STREAMING" class="message__generating">正在生成回答…</p>
         <p v-else-if="item.status === ChatMessageStatus.CANCELLED" class="message__interrupted">已停止生成。</p>
+        <p v-if="item.temporary && (item.status === ChatMessageStatus.STREAMING || item.status === ChatMessageStatus.FAILED)" class="message__interrupted">结果待确认，将在连接结束后核对历史。</p>
         <p v-if="item.errorCode" class="message__error">消息处理未完成，请稍后刷新会话历史。</p>
         <ul v-if="messageSources(item).length" class="message__sources"><li v-for="(source, index) in messageSources(item)" :key="index">{{ sourceText(source) }}</li></ul>
       </article>
@@ -53,6 +79,9 @@ const visibleMessages = computed(() => props.messages.filter(item => !(item.role
 
 <style scoped lang="scss">
 .message-history { min-width: 0; padding: 24px; overflow: auto; background: var(--el-bg-color-page); }
+.message-history__toolbar { display: flex; align-items: center; gap: 8px; max-width: 900px; margin: 0 auto 12px; }
+.message-history__status { color: var(--el-color-warning); font-size: 13px; }
+.message-history__spacer { flex: 1; }
 .message-history__items { max-width: 900px; margin: 0 auto; }
 .message { margin-bottom: 14px; padding: 14px; border-radius: 8px; background: var(--el-bg-color); border: 1px solid var(--el-border-color-lighter); }
 .message.user { border-left: 4px solid var(--el-color-primary); }.message.assistant { border-left: 4px solid var(--el-color-success); }.message.system { border-left: 4px solid var(--el-color-info); }

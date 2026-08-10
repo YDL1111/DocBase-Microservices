@@ -1,0 +1,1 @@
+{"version":"1.6.1","results":[[":web/src/views/chat/composables/use-chat-stream.spec.ts",{"duration":0,"failed":true}],[":web/src/views/chat/components/chat-composer.spec.ts",{"duration":0,"failed":true}],[":web/src/views/chat/components/message-history.spec.ts",{"duration":0,"failed":true}],[":web/src/views/chat/index.spec.ts",{"duration":0,"failed":true}]]}

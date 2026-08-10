@@ -55,6 +55,31 @@ The browser client uses `fetch` with `POST /api/ai/chat/stream`, JSON request da
 - EOF without a `done` or `error` event is an incomplete stream. A user cancellation is propagated through `AbortSignal` to fetch.
 - After a `done` or `error` event the client keeps reading until the server closes the stream, while ignoring any later events, so the server can persist its terminal state normally.
 
+## Chat page streaming behavior (Phase 4C2A)
+
+### Failure recovery & history reconciliation (Phase 4C2A)
+
+- Transport-level failures whose outcome is uncertain (`NETWORK_ERROR`, `STREAM_INCOMPLETE`, premature disconnect, and transport-shape `HTTP_ERROR`) never display as success. The temporary USER/ASSISTANT messages are kept, the transport is allowed to fully settle (drain), and the UI shows a safe "result pending" state while it requests the persisted history for the active session.
+- If the history already contains a USER message with the same `clientRequestId`, the persisted record replaces the temporary one and no new RAG call is made. If the history does not contain the request yet, the temporary content is preserved and a retry entry is exposed; retrying reuses the original `clientRequestId`.
+- Reconciliation is guarded by the stream generation, the selected session id, and the mounted flag. A late reconciliation result never writes into a different session, never restores a deleted session, and never overwrites a newer stream started after it.
+
+### clientRequestId lifecycle (Phase 4C2A)
+
+- A brand-new user intent generates a fresh UUID via `crypto.randomUUID()`. The initial-401 retry inside the stream client naturally reuses the same id.
+- Editing the question and resending generates a new id.
+- Retrying an uncertain result reuses the original id; the user can never supply an id, and none is derived from timestamps or indices.
+- A `DUPLICATE_REQUEST` SSE error is treated as "the server already knows this id": the client reconciles with history instead of synthesizing a new id to bypass the idempotency guard. If the persisted record is still STREAMING, the UI shows a processing state and offers a manual recheck.
+
+### Manual refresh & recheck
+
+- The message history has an explicit refresh action. It is disabled while a stream is generating, draining, or cancelling, so a history response can never clobber a live temporary message. Concurrent refreshes coalesce into a single pending refresh, and a refresh captures the session id plus request sequence so a stale response is ignored.
+- A manual recheck re-runs reconciliation for the current attempt. Repeated clicks coalesce into the single in-flight recheck (`pendingRecheck`), and the latest user request is never silently dropped.
+
+### Recovery states
+
+- `GENERATING` (receiving tokens), `DRAINING` (terminal received, transport ending), `CANCELLING` (stop in flight), `SYNCING` (reconciling with history), `UNCERTAIN` (pending confirmation), `RETRYABLE` (confirmed absent, retry offered), plus the terminal `COMPLETED` / `FAILED` / `CANCELLED`.
+- During draining and cancelling the input keeps its content and stays editable, but the send button is disabled. Status text is generic and never exposes backend stack traces, URLs, SQL, MinIO keys, prompts, or raw error payloads.
+
 ## Chat page streaming behavior (Phase 4C1)
 
 - The page sends only from a selected, valid session that has a positive `knowledgeBaseId`. The user cannot change the knowledge base from the question box; the selected session's stored binding is sent with the request.

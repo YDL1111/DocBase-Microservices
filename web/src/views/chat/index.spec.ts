@@ -20,8 +20,8 @@ vi.mock("@/store/modules/user", () => ({ useUserStoreHook: () => ({ hasPermissio
 
 import ChatPage from "./index.vue";
 
-const SessionList = { name: "SessionList", props: ["sessions", "selectedSessionId", "loading", "deletingSessionId", "current", "size", "total"], emits: ["create", "select", "delete", "refresh", "pageChange", "sizeChange"], template: "<div><slot /></div>" };
-const MessageHistory = { name: "MessageHistory", props: ["messages", "loading", "selectedSessionId"], template: "<div />" };
+const SessionList = { name: "SessionList", props: ["sessions", "selectedSessionId", "loading", "deletingSessionId", "lockedSessionId", "current", "size", "total"], emits: ["create", "select", "delete", "refresh", "pageChange", "sizeChange"], template: "<div><slot /></div>" };
+const MessageHistory = { name: "MessageHistory", props: ["messages", "loading", "selectedSessionId", "streaming", "syncing", "cancelling", "draining", "canAcceptInput", "attempt"], emits: ["refresh", "retry", "recheck"], template: "<div />" };
 const ChatComposer = { name: "ChatComposer", props: ["modelValue", "streaming", "canSend", "maxLength"], emits: ["send", "stop", "update:modelValue"], template: "<div />" };
 const CreateSessionDialog = { name: "CreateSessionDialog", props: ["modelValue", "knowledgeBases", "loadingKnowledgeBases", "creating"], emits: ["create", "opened", "update:modelValue"], template: "<div />" };
 function result(records: any[] = []) { return { records, total: records.length, current: 1, size: 20, pages: 1 }; }
@@ -157,6 +157,42 @@ describe("chat history page", () => {
     expect(deleteSession).toHaveBeenCalledWith(1);
   });
 
+  it("refuses to delete a session that is undergoing background recovery", async () => {
+    // 流以 NETWORK_ERROR 失败 → 自动对账发现 ASSISTANT 仍为 STREAMING → 进入后台恢复，
+    // 此时被恢复的会话（id=1）不可删除：删除会丢掉核对终态所需的历史。
+    // 拦截 streamChat 以捕获 send() 生成的真实 clientRequestId，对账历史必须使用相同 id。
+    let rid = "x";
+    streamChat.mockImplementation((request: { clientRequestId: string }) => {
+      rid = request.clientRequestId;
+      return Promise.reject(Object.assign(new Error("net"), { code: "NETWORK_ERROR" }));
+    });
+    listMessages.mockResolvedValueOnce([{ id: 1, sessionId: 1, role: 1, content: "seed", status: 2, userId: 1, createdAt: "t" }]);
+    // 注意：STREAMING = 1（ChatMessageStatus），不是 3（FAILED）。
+    const recoveringHistory = () => [
+      { id: 1, sessionId: 1, userId: 1, role: 1, content: "question", status: 2, clientRequestId: rid, createdAt: "t" },
+      { id: 2, sessionId: 1, userId: 1, role: 2, content: "", status: 1, createdAt: "t" }
+    ];
+    // 第一次对账（流失败后自动触发）返回 STREAMING → 启动后台恢复。
+    // 必须用 mockImplementationOnce：rid 在 send() 之后才被赋值，若提前调用 recoveringHistory()
+    // 会捕获到初始值 "x"，导致 reconcile 找不到匹配的 USER 消息。
+    listMessages.mockImplementationOnce(() => Promise.resolve(recoveringHistory()));
+    const wrapper = mountPage(); await flush();
+    const list = wrapper.findComponent(SessionList);
+    list.vm.$emit("select", 1); await flush();
+    // 发送一个问题并等待流失败、对账完成。
+    const composer = wrapper.findComponent(ChatComposer);
+    composer.vm.$emit("update:modelValue", "question"); await flush();
+    composer.vm.$emit("send"); await flush(); await flush(); await flush();
+    // 后台恢复已启动 → SessionList 应收到 lockedSessionId=1。
+    // 对账是多步异步（流失败 → markFailure → reconcile → fetchHistory），需等待。
+    await vi.waitFor(() => expect(list.props("lockedSessionId")).toBe(1));
+    // 尝试删除该会话 → 应被 removeSession 守卫拦住，不调 confirm 也不调 deleteSession。
+    list.vm.$emit("delete", { id: 1, title: "A" }); await flush();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(deleteSession).not.toHaveBeenCalled();
+    expect(messages.warning).toHaveBeenCalledWith(expect.stringContaining("暂不可删除"));
+  });
+
   it("does not write a late history response after the page unmounts", async () => {
     let resolveHistory!: (value: any[]) => void;
     listMessages.mockImplementationOnce(() => new Promise(resolve => { resolveHistory = resolve; }));
@@ -202,6 +238,103 @@ describe("chat history page", () => {
     composer.vm.$emit("send"); await flush();
     wrapper.unmount();
     expect(signal.aborted).toBe(true);
+  });
+
+  it("forwards the MessageHistory refresh event to listChatMessages without re-running selectSession", async () => {
+    listMessages.mockResolvedValueOnce([{ id: 1, sessionId: 1, role: 1, content: "seed", status: 2, userId: 1, createdAt: "t" }]);
+    const refreshPage = [{ id: 2, sessionId: 1, role: 2, content: "authoritative", status: 2, userId: 1, createdAt: "t" }];
+    listMessages.mockResolvedValueOnce(refreshPage);
+    const wrapper = mountPage(); await flush();
+    const list = wrapper.findComponent(SessionList);
+    list.vm.$emit("select", 1); await flush();
+    expect(listMessages).toHaveBeenCalledTimes(1);
+    expect(wrapper.findComponent(MessageHistory).props("messages")[0].content).toBe("seed");
+    // 点击 MessageHistory 工具栏的"刷新"按钮 → 真实链路应直接请求 listChatMessages，
+    // 而不是走 selectSession（否则会多一次清空 + 重新加载）。
+    wrapper.findComponent(MessageHistory).vm.$emit("refresh"); await flush();
+    expect(listMessages).toHaveBeenCalledTimes(2);
+    expect(wrapper.findComponent(MessageHistory).props("messages")[0].content).toBe("authoritative");
+  });
+
+  it("keeps existing messages when the manual refresh fails", async () => {
+    listMessages.mockResolvedValueOnce([{ id: 1, sessionId: 1, role: 1, content: "seed", status: 2, userId: 1, createdAt: "t" }]);
+    listMessages.mockRejectedValueOnce(new Error("network"));
+    const wrapper = mountPage(); await flush();
+    wrapper.findComponent(SessionList).vm.$emit("select", 1); await flush();
+    expect(wrapper.findComponent(MessageHistory).props("messages")[0].content).toBe("seed");
+    wrapper.findComponent(MessageHistory).vm.$emit("refresh"); await flush();
+    expect(listMessages).toHaveBeenCalledTimes(2);
+    // 失败时应保留当前内容，绝不能刷成空白。
+    expect(wrapper.findComponent(MessageHistory).props("messages")[0].content).toBe("seed");
+    expect(messages.warning).toHaveBeenCalledWith("刷新消息失败，已保留当前内容。");
+  });
+
+  it("keeps session B refreshable while a session A refresh is still in flight", async () => {
+    let resolveA!: (value: any[]) => void;
+    // 调用顺序：select(1) → refresh A(挂起) → select(2) → refresh B。
+    listMessages.mockResolvedValueOnce([{ id: 1, sessionId: 1, role: 1, content: "seed-1", status: 2, userId: 1, createdAt: "t" }])
+      .mockImplementationOnce(() => new Promise(resolve => { resolveA = resolve; }))
+      .mockResolvedValue([{ id: 2, sessionId: 2, role: 2, content: "B", status: 2, userId: 1, createdAt: "t" }]);
+    const wrapper = mountPage(); await flush();
+    const list = wrapper.findComponent(SessionList);
+    list.vm.$emit("select", 1); await flush();
+    // 触发一次尚未完成的刷新，随后切到会话 B。
+    wrapper.findComponent(MessageHistory).vm.$emit("refresh"); await flush();
+    list.vm.$emit("select", 2); await flush();
+    // 切走会使旧请求的 sequence 失效；旧请求必须释放锁（owner token），B 的刷新才能正常进行。
+    resolveA([{ id: 9, sessionId: 1, role: 1, content: "stale-A", status: 2, userId: 1, createdAt: "t" }]); await flush();
+    wrapper.findComponent(MessageHistory).vm.$emit("refresh"); await flush();
+    expect(wrapper.findComponent(MessageHistory).props("messages")[0].content).toBe("B");
+  });
+
+  it("keeps B loading indicator while B history loads, despite a stale A refresh settling", async () => {
+    let resolveA!: (value: any[]) => void;
+    let resolveB!: (value: any[]) => void;
+    let bCalls = 0;
+    // select(1) 立即返回；A 手动刷新挂起；切到 B 后 B 的历史请求阻塞在 deferred。
+    listMessages.mockResolvedValueOnce([{ id: 1, sessionId: 1, role: 1, content: "seed-1", status: 2, userId: 1, createdAt: "t" }])
+      .mockImplementationOnce(() => new Promise(resolve => { resolveA = resolve; }))
+      .mockImplementation(async () => { bCalls += 1; return new Promise(resolve => { resolveB = resolve; }); });
+    const wrapper = mountPage(); await flush();
+    const list = wrapper.findComponent(SessionList);
+    list.vm.$emit("select", 1); await flush();
+    // A 的刷新飞行中；此时再点一次刷新应进入 pending 队列。
+    wrapper.findComponent(MessageHistory).vm.$emit("refresh"); await flush();
+    wrapper.findComponent(MessageHistory).vm.$emit("refresh"); await flush();
+    // 切到 B → 应清理 A 的 pendingManualRefresh，且 B 的历史开始加载。
+    list.vm.$emit("select", 2); await flush();
+    expect(wrapper.findComponent(MessageHistory).props("loading")).toBe(true);
+    // A 的旧刷新随后完成（stale）→ 绝不能关闭 B 的 loading，也不能触发补刷。
+    resolveA([{ id: 9, sessionId: 1, role: 1, content: "stale-A", status: 2, userId: 1, createdAt: "t" }]); await flush();
+    expect(wrapper.findComponent(MessageHistory).props("loading")).toBe(true);
+    const callsWhenStillLoading = bCalls;
+    // B 的历史终于返回 → loading 关闭，且只请求过一次 B 的历史（无多余补刷）。
+    resolveB([{ id: 20, sessionId: 2, role: 2, content: "B", status: 2, userId: 1, createdAt: "t" }]);
+    await vi.waitFor(() => expect(wrapper.findComponent(MessageHistory).props("loading")).toBe(false));
+    expect(wrapper.findComponent(MessageHistory).props("messages")[0].content).toBe("B");
+    expect(bCalls).toBe(callsWhenStillLoading);
+  });
+
+  it("releases the refresh lock when the pending manual refresh resolves so a new refresh can run", async () => {
+    let resolveRefresh!: (value: any[]) => void;
+    // 依次：select(1) 立即返回；第一次手动刷新挂起；第二次手动刷新返回终态。
+    // 注意：刷新期间 messageLoading=true，canSend 为 false，用户实际上无法在刷新未决时发起新流。
+    // 本测试验证的是"挂起的刷新完成后必须释放 refreshInFlight 锁"，否则后续刷新会被
+    // `if (refreshInFlight) { pendingManualRefresh = true; return; }` 拦住、永远无法执行。
+    listMessages.mockResolvedValueOnce([])
+      .mockImplementationOnce(() => new Promise(resolve => { resolveRefresh = resolve; }))
+      .mockResolvedValue([{ id: 2, sessionId: 1, role: 2, content: "after-refresh", status: 2, userId: 1, createdAt: "t" }]);
+    const wrapper = mountPage(); await flush();
+    wrapper.findComponent(SessionList).vm.$emit("select", 1); await flush();
+    // 触发一次尚未完成的刷新。
+    wrapper.findComponent(MessageHistory).vm.$emit("refresh"); await flush();
+    // 旧刷新尚未完成 → 此时再点刷新应进入 pending 队列（refreshInFlight 守卫）。
+    wrapper.findComponent(MessageHistory).vm.$emit("refresh"); await flush();
+    // 旧刷新完成 → 必须释放 refreshInFlight 锁，并回放 pendingManualRefresh。
+    resolveRefresh([{ id: 99, sessionId: 1, role: 1, content: "stale", status: 2, userId: 1, createdAt: "t" }]); await flush();
+    await flush();
+    // 锁已释放且补刷已执行，最终消息应为第二次刷新的终态，而非旧刷新的 stale 数据。
+    expect(wrapper.findComponent(MessageHistory).props("messages")[0].content).toBe("after-refresh");
   });
 
   it("uses the real v-auth directive to remove an element without ai:chat:list", () => {

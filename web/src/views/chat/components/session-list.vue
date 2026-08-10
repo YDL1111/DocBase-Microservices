@@ -2,11 +2,13 @@
 import { Delete, Plus, Refresh } from "@element-plus/icons-vue";
 import type { ChatSession } from "@/api/types";
 
-defineProps<{
+const props = defineProps<{
   sessions: ChatSession[];
   selectedSessionId: number | null;
   loading: boolean;
   deletingSessionId: number | null;
+  /** Session currently locked by an in-flight background recovery; its delete button is disabled. */
+  lockedSessionId: number | null;
   current: number;
   size: number;
   total: number;
@@ -42,7 +44,7 @@ function displayTitle(session: ChatSession): string {
           <span class="session-list__title">{{ displayTitle(session) }}</span>
           <small>知识库：{{ session.knowledgeBaseId ?? '未绑定' }} · {{ session.updatedAt }}</small>
         </button>
-        <el-button v-auth="'ai:chat:list'" link type="danger" :icon="Delete" :loading="deletingSessionId === session.id" aria-label="删除会话" @click.stop="emit('delete', session)" />
+        <el-button v-auth="'ai:chat:list'" link type="danger" :icon="Delete" :loading="deletingSessionId === session.id" :disabled="session.id === lockedSessionId" aria-label="删除会话" @click.stop="emit('delete', session)" />
       </li>
     </ul>
     <el-pagination v-if="total > 0" small background layout="prev, pager, next" :total="total" :current-page="current" :page-size="size" @current-change="emit('pageChange', $event)" />
