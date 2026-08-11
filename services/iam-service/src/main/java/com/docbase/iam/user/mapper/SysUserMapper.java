@@ -5,6 +5,7 @@ import com.docbase.iam.user.domain.SysUser;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.util.List;
 import java.util.Set;
 
 public interface SysUserMapper extends BaseMapper<SysUser> {
@@ -34,4 +35,18 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
             JOIN sys_role r ON r.role_id = ur.role_id
             WHERE ur.user_id = #{userId} AND r.deleted = 0""")
     Set<Long> selectRoleIdsByUserId(@Param("userId") Long userId);
+
+    /**
+     * 查询所有"有效"超级管理员的 ID。
+     *
+     * "有效" = is_admin=1 AND status=1 AND deleted=0。调用方须在事务内、并在同一
+     * 事务内已通过 {@link AdminMutexMapper#lockGuardRow()} 持有守卫行锁，从而保证
+     * 读取时不会有并发事务同时修改有效管理员集合。
+     */
+    @Select("""
+            SELECT user_id FROM sys_user
+            WHERE is_admin = 1 AND status = 1 AND deleted = 0
+            ORDER BY user_id""")
+    List<Long> selectActiveAdminIds();
+
 }

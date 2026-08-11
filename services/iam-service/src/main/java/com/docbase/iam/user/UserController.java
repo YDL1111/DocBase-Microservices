@@ -3,14 +3,15 @@ package com.docbase.iam.user;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.docbase.common.core.ApiResponse;
 import com.docbase.iam.user.domain.SysUser;
+import com.docbase.iam.user.dto.ChangeUserStatusRequest;
+import com.docbase.iam.user.dto.CreateUserRequest;
+import com.docbase.iam.user.dto.ResetPasswordRequest;
+import com.docbase.iam.user.dto.UpdateUserRequest;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/system/users")
@@ -38,7 +39,7 @@ public class UserController {
 
     @PostMapping
     @PreAuthorize("hasAuthority('system:user:create') or hasAuthority('admin:all')")
-    ApiResponse<Long> create(@Valid @RequestBody UserRequest request) {
+    ApiResponse<Long> create(@Valid @RequestBody CreateUserRequest request) {
         SysUser user = new SysUser();
         user.setUsername(request.username());
         user.setNickname(request.nickname());
@@ -53,7 +54,7 @@ public class UserController {
 
     @PutMapping("/{userId}")
     @PreAuthorize("hasAuthority('system:user:update') or hasAuthority('admin:all')")
-    ApiResponse<Void> update(@PathVariable Long userId, @Valid @RequestBody UserRequest request) {
+    ApiResponse<Void> update(@PathVariable Long userId, @Valid @RequestBody UpdateUserRequest request) {
         SysUser user = new SysUser();
         user.setUserId(userId);
         user.setNickname(request.nickname());
@@ -74,15 +75,15 @@ public class UserController {
 
     @PutMapping("/{userId}/status")
     @PreAuthorize("hasAuthority('system:user:update') or hasAuthority('admin:all')")
-    ApiResponse<Void> changeStatus(@PathVariable Long userId, @RequestBody Map<String, Integer> body) {
-        userService.changeStatus(userId, body.get("status"));
+    ApiResponse<Void> changeStatus(@PathVariable Long userId, @Valid @RequestBody ChangeUserStatusRequest request) {
+        userService.changeStatus(userId, request.status());
         return ApiResponse.success(null);
     }
 
     @PutMapping("/{userId}/password")
     @PreAuthorize("hasAuthority('system:user:reset-password') or hasAuthority('admin:all')")
-    ApiResponse<Void> resetPassword(@PathVariable Long userId, @RequestBody Map<String, String> body) {
-        userService.resetPassword(userId, body.get("password"));
+    ApiResponse<Void> resetPassword(@PathVariable Long userId, @Valid @RequestBody ResetPasswordRequest request) {
+        userService.resetPassword(userId, request.password());
         return ApiResponse.success(null);
     }
 
@@ -91,15 +92,4 @@ public class UserController {
     ApiResponse<List<Long>> getRoles(@PathVariable Long userId) {
         return ApiResponse.success(userService.getRoleIds(userId));
     }
-
-    public record UserRequest(
-            @NotBlank String username,
-            String nickname,
-            @NotBlank String password,
-            String email,
-            String phoneNumber,
-            Integer sex,
-            Integer status,
-            String remark,
-            List<Long> roleIds) {}
 }

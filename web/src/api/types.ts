@@ -460,3 +460,72 @@ export function isRetryableStatus(status: string): boolean {
 export function isCancelableStatus(status: string): boolean {
   return CANCELABLE_STATUSES.includes(status);
 }
+
+/* ============================================================
+ * 系统管理 - 用户管理相关类型
+ * 对应 iam-service 的 UserController 与 SysUser 实体
+ * ============================================================ */
+
+/** 用户实体（对应 /api/system/users），password 返回前由后端置 null */
+export interface SysUser {
+  userId: number;
+  username: string;
+  nickname: string;
+  email: string;
+  phoneNumber: string;
+  /** 0未知 1男 2女 */
+  sex: number;
+  /** 1启用 0停用 */
+  status: number;
+  remark: string;
+  isAdmin?: number;
+  loginDate?: string;
+  createTime: string;
+  updateTime: string;
+}
+
+/** 用户列表查询参数（仅支持 current/size/username 筛选） */
+export interface SysUserQuery {
+  current?: number;
+  size?: number;
+  username?: string;
+}
+
+/** 创建用户请求（username/password 必填） */
+export interface CreateUserRequest {
+  username: string;
+  password: string;
+  nickname?: string;
+  email?: string;
+  phoneNumber?: string;
+  sex?: number;
+  status?: number;
+  remark?: string;
+  roleIds?: number[];
+}
+
+/**
+ * 更新用户请求。
+ * 注意：后端 PUT 仅使用 nickname/email/phoneNumber/sex/remark/roleIds，
+ * username/password/status 虽可传但会被忽略。
+ */
+export interface UpdateUserRequest {
+  nickname?: string;
+  email?: string;
+  phoneNumber?: string;
+  sex?: number;
+  remark?: string;
+  roleIds?: number[];
+}
+
+/** 用户状态枚举 */
+export const UserStatus = { ENABLED: 1, DISABLED: 0 } as const;
+
+export function userStatusLabel(status: number): string {
+  return status === UserStatus.ENABLED ? "启用" : status === UserStatus.DISABLED ? "停用" : "未知";
+}
+
+/** 用户状态标签类型（用于 Element Plus Tag） */
+export function userStatusTagType(status: number): "success" | "info" | "" {
+  return status === UserStatus.ENABLED ? "success" : status === UserStatus.DISABLED ? "info" : "";
+}

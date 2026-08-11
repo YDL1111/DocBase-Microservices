@@ -68,3 +68,13 @@ CREATE TABLE IF NOT EXISTS sys_role_menu (
     menu_id BIGINT NOT NULL,
     PRIMARY KEY (role_id, menu_id)
 );
+
+-- 超级管理员变更的数据库级全局互斥锁（单行守卫记录）。
+-- 与生产 Flyway 迁移 V3__admin_mutex.sql 对应，使集成测试能在 H2 上验证
+-- 跨实例串行化的竞争逻辑：事务内对守卫行的 UPDATE 获取行锁并持有到提交，
+-- 并发事务在该行上阻塞等待（无需应用层租约）。
+CREATE TABLE IF NOT EXISTS sys_admin_mutex (
+    id           TINYINT NOT NULL PRIMARY KEY,
+    lock_version INT     NOT NULL DEFAULT 0
+);
+MERGE INTO sys_admin_mutex(id, lock_version) KEY(id) VALUES (1, 0);
