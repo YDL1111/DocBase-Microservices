@@ -529,3 +529,97 @@ export function userStatusLabel(status: number): string {
 export function userStatusTagType(status: number): "success" | "info" | "" {
   return status === UserStatus.ENABLED ? "success" : status === UserStatus.DISABLED ? "info" : "";
 }
+
+/* ============================================================
+ * 系统管理 - 角色管理相关类型
+ * 对应 iam-service 的 RoleController / SysRole 实体 / 角色 DTO
+ * ============================================================ */
+
+/** 角色实体（对应 /api/system/roles） */
+export interface SysRole {
+  roleId: number;
+  roleName: string;
+  roleKey: string;
+  roleSort: number;
+  /** 数据范围：1全部 2自定义 3本部门 4本部门及以下 5本人 */
+  dataScope: number;
+  /** 1启用 0停用 */
+  status: number;
+  /** 1=系统保留角色（仅超级管理员可修改/停用/删除/分配） */
+  isSystem: number;
+  remark: string;
+  createTime: string;
+  updateTime: string;
+}
+
+/** 角色列表查询参数（仅支持 current/size/roleName 筛选） */
+export interface SysRoleQuery {
+  current?: number;
+  size?: number;
+  roleName?: string;
+}
+
+/** 创建角色请求（roleName/roleKey 必填） */
+export interface CreateRoleRequest {
+  roleName: string;
+  roleKey: string;
+  roleSort?: number;
+  dataScope?: number;
+  status?: number;
+  remark?: string;
+  menuIds?: number[] | null;
+}
+
+/**
+ * 更新角色请求。
+ * 关键语义：menuIds=null 表示"不修改菜单"；menuIds=[] 表示"清空菜单"。
+ * 不允许提交 isSystem / deleted / creatorId 等服务端字段。
+ */
+export interface UpdateRoleRequest {
+  roleName: string;
+  roleKey: string;
+  roleSort?: number;
+  dataScope?: number;
+  remark?: string;
+  /** null = 不修改菜单；[] = 清空菜单 */
+  menuIds?: number[] | null;
+}
+
+/** 角色状态枚举 */
+export const RoleStatus = { ENABLED: 1, DISABLED: 0 } as const;
+
+export function roleStatusLabel(status: number): string {
+  return status === RoleStatus.ENABLED ? "启用" : status === RoleStatus.DISABLED ? "停用" : "未知";
+}
+
+export function roleStatusTagType(status: number): "success" | "info" | "" {
+  return status === RoleStatus.ENABLED ? "success" : status === RoleStatus.DISABLED ? "info" : "";
+}
+
+/** 数据范围枚举（与 sys_role.data_scope 一致） */
+export const DataScope = {
+  ALL: 1,
+  CUSTOM: 2,
+  DEPT: 3,
+  DEPT_AND_BELOW: 4,
+  SELF: 5
+} as const;
+
+/** 数据范围选项（用于下拉框） */
+export const DATA_SCOPE_OPTIONS: { value: number; label: string }[] = [
+  { value: DataScope.ALL, label: "全部数据" },
+  { value: DataScope.CUSTOM, label: "自定义" },
+  { value: DataScope.DEPT, label: "本部门" },
+  { value: DataScope.DEPT_AND_BELOW, label: "本部门及以下" },
+  { value: DataScope.SELF, label: "仅本人" }
+];
+
+export function dataScopeLabel(scope: number): string {
+  const found = DATA_SCOPE_OPTIONS.find(o => o.value === scope);
+  return found ? found.label : "未知";
+}
+
+/** 分配菜单请求体 */
+export interface AssignRoleMenusRequest {
+  menuIds: number[];
+}
