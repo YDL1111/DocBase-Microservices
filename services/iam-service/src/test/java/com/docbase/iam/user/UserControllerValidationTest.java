@@ -170,4 +170,28 @@ class UserControllerValidationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false));
     }
+
+    /* ========================= roleIds 边界校验 ========================= */
+
+    @Test
+    void 创建用户roleIds含null元素应返回400() throws Exception {
+        String token = loginAsAdmin("valrolenull");
+        mockMvc.perform(post("/api/system/users")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json")
+                        .content("{\"username\":\"valrolenull_user\",\"password\":\"password123\",\"roleIds\":[1,null]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void 创建用户roleIds含负数应返回400() throws Exception {
+        String token = loginAsAdmin("valroleneg");
+        mockMvc.perform(post("/api/system/users")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType("application/json")
+                        .content("{\"username\":\"valroleneg_user\",\"password\":\"password123\",\"roleIds\":[-5]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
 }

@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS sys_role (
     role_sort   INT          NOT NULL DEFAULT 0,
     data_scope  TINYINT      NOT NULL DEFAULT 1,
     status      TINYINT      NOT NULL DEFAULT 1,
+    is_system   TINYINT      NOT NULL DEFAULT 0,
     remark      VARCHAR(512) NOT NULL DEFAULT '',
     creator_id  BIGINT                ,
     create_time TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,

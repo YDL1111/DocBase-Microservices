@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.docbase.common.core.BusinessException;
 import com.docbase.iam.auth.AuthService;
+import com.docbase.iam.role.RoleService;
 import com.docbase.iam.security.IamUserPrincipal;
 import com.docbase.iam.security.TokenStore;
 import com.docbase.iam.user.domain.SysUser;
@@ -32,6 +33,13 @@ public class UserService {
     private final TransactionTemplate transactionTemplate;
 
     /**
+     * 角色分配授权：校验调用者是否可以把指定角色分配给用户（角色存在/启用/未删除、
+     * 系统保留角色仅超级管理员可分配、目标角色权限⊆调用者权限）。
+     * 注入 RoleService 而非在本类重复实现，避免角色授权规则散落多处。
+     */
+    private final RoleService roleService;
+
+    /**
      * 数据库级全局互斥锁：以 sys_admin_mutex 表的单行守卫记录为仲裁点，把
      * "读取有效管理员集合 → 判断是否最后一个 → 执行停用/删除"整段串行化。
      *
@@ -52,6 +60,7 @@ public class UserService {
     public UserService(SysUserMapper userMapper, SysUserRoleMapper userRoleMapper,
                        PasswordEncoder passwordEncoder, AuthService authService,
                        TokenStore tokenStore, AdminMutexMapper adminMutexMapper,
+                       RoleService roleService,
                        PlatformTransactionManager transactionManager) {
         this.userMapper = userMapper;
         this.userRoleMapper = userRoleMapper;
@@ -59,6 +68,7 @@ public class UserService {
         this.authService = authService;
         this.tokenStore = tokenStore;
         this.adminMutexMapper = adminMutexMapper;
+        this.roleService = roleService;
         // 编程式事务：加锁 UPDATE 与 read-check-write 在同一个事务内执行，
         // 行锁由数据库持有到提交/回滚，从而让并发事务一定读到对方已提交的最新状态。
         this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -216,7 +226,14 @@ public class UserService {
     @Transactional
     public void assignRoles(Long userId, List<Long> roleIds) {
         if (roleIds == null) return;
-        for (Long roleId : roleIds) {
+        // 先去重：避免重复 ID 通过授权检查后重复插入 sys_user_role 主键，触发数据库异常/500。
+        // 数据库唯一键 (user_id, role_id) 继续作为最终防线。
+        List<Long> deduped = roleIds.stream().distinct().toList();
+        // 角色分配授权：校验每个角色存在/启用/未删除、系统保留角色仅超级管理员可分配、
+        // 目标角色的有效权限是调用者权限的子集（防纵向提权）。
+        IamUserPrincipal caller = currentPrincipal();
+        roleService.assertCanAssignRoles(caller, deduped);
+        for (Long roleId : deduped) {
             userRoleMapper.insert(new SysUserRole(userId, roleId));
         }
         // Role assignment changes invalidate permissions

@@ -23,6 +23,13 @@ public class SysRole {
 
     private Integer status;
 
+    /**
+     * 系统保留角色标志（1=系统保留 0=普通角色）。
+     * 系统保留角色由 Flyway 迁移预置，禁止非超级管理员修改、停用或删除，
+     * 也不允许通过菜单授权取得 admin:all。这是比 roleName 更可靠的不可变标记。
+     */
+    private Integer isSystem;
+
     private String remark;
 
     private Long creatorId;
@@ -48,6 +55,8 @@ public class SysRole {
     public void setDataScope(Integer dataScope) { this.dataScope = dataScope; }
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }
+    public Integer getIsSystem() { return isSystem; }
+    public void setIsSystem(Integer isSystem) { this.isSystem = isSystem; }
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
     public Long getCreatorId() { return creatorId; }

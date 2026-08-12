@@ -1,6 +1,10 @@
 package com.docbase.iam.auth;
 
+import java.util.Collection;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Maps old permission strings (from the legacy AgileBoot project) to new ones.
@@ -34,6 +38,26 @@ public final class PermissionMapping {
     );
 
     private PermissionMapping() {}
+
+    /**
+     * 把一组权限标识归一化为"新格式"：对每条旧格式权限执行 mapToNew，过滤掉空串。
+     *
+     * <p>调用者 JWT 中的权限已经过归一化（AuthService.loadPermissions），而数据库中
+     * 菜单的 permission 字段可能仍是旧格式（如 system:role:edit）。在比较"调用者是否
+     * 拥有某权限"前，必须先把数据库侧的原始权限归一化，否则会把旧格式权限误判为越权。
+     *
+     * <p>该方法是 AuthService.loadPermissions 与 RoleService.assertGrantable 的共同
+     * 归一化规则，集中在此以避免两处规则漂移。
+     */
+    public static Set<String> normalize(Collection<String> permissions) {
+        if (permissions == null) {
+            return Set.of();
+        }
+        return permissions.stream()
+                .map(PermissionMapping::mapToNew)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
 
     /**
      * Maps an old permission string to the new format. If the permission is already

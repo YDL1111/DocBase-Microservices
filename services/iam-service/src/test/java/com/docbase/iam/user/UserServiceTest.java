@@ -2,9 +2,11 @@ package com.docbase.iam.user;
 
 import com.docbase.common.core.BusinessException;
 import com.docbase.iam.auth.AuthService;
+import com.docbase.iam.role.RoleService;
 import com.docbase.iam.security.IamUserPrincipal;
 import com.docbase.iam.security.TokenStore;
 import com.docbase.iam.user.domain.SysUser;
+import com.docbase.iam.user.domain.SysUserRole;
 import com.docbase.iam.user.mapper.AdminMutexMapper;
 import com.docbase.iam.user.mapper.SysUserMapper;
 import com.docbase.iam.user.mapper.SysUserRoleMapper;
@@ -36,6 +38,7 @@ class UserServiceTest {
     private AuthService authService;
     private TokenStore tokenStore;
     private AdminMutexMapper adminMutexMapper;
+    private RoleService roleService;
     private PlatformTransactionManager transactionManager;
     private UserService userService;
 
@@ -47,11 +50,12 @@ class UserServiceTest {
         authService = mock(AuthService.class);
         tokenStore = mock(TokenStore.class);
         adminMutexMapper = mock(AdminMutexMapper.class);
+        roleService = mock(RoleService.class);
         transactionManager = mock(PlatformTransactionManager.class);
         // 单元测试无真实数据库，桩装守卫行锁定始终"成功"（lockGuardRow 返回 1），
         // 聚焦测试资源级授权与最后管理员保护逻辑本身。
         when(adminMutexMapper.lockGuardRow()).thenReturn(1);
-        userService = new UserService(userMapper, userRoleMapper, passwordEncoder, authService, tokenStore, adminMutexMapper, transactionManager);
+        userService = new UserService(userMapper, userRoleMapper, passwordEncoder, authService, tokenStore, adminMutexMapper, roleService, transactionManager);
     }
 
     @AfterEach
@@ -272,5 +276,20 @@ class UserServiceTest {
         userService.resetPassword(3L, "NewSecret-1");
 
         verify(userMapper).updateById(any(SysUser.class));
+    }
+
+    /* ========================= assignRoles 去重 ========================= */
+
+    @Test
+    void assignRoles_重复roleId先去重再校验再插入() {
+        setCaller(1, true);
+        // 同一角色出现两次：去重后只应校验一次、插入一次，避免主键冲突/500。
+        // 超级管理员调用时 assertCanAssignRoles 直接放行（admin 短路），无需桩 roleMapper。
+        doNothing().when(roleService).assertCanAssignRoles(any(), any());
+
+        userService.assignRoles(10L, List.of(5L, 5L, 5L));
+
+        verify(roleService).assertCanAssignRoles(any(), eq(List.of(5L)));
+        verify(userRoleMapper, times(1)).insert(any(SysUserRole.class));
     }
 }

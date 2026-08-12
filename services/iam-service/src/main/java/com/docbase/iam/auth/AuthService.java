@@ -24,7 +24,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 public class AuthService {
@@ -227,12 +226,13 @@ public class AuthService {
         if (perms == null) {
             perms = Collections.emptySet();
         }
-        // Map old permission strings to new ones for backward compatibility
-        Set<String> mapped = perms.stream()
-                .map(PermissionMapping::mapToNew)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-        // Super-admin gets all permissions
+        // 归一化：把旧格式权限映射为新格式并过滤空串（与 RoleService.assertGrantable 共用
+        // PermissionMapping.normalize，避免两处规则漂移）。
+        Set<String> mapped = PermissionMapping.normalize(perms);
+        // admin:all 是超级管理员专属标记，绝不通过菜单授权取得。即便有人把某菜单的
+        // permission 字段写成 admin:all，也在此处过滤掉，从根源上阻断提权链路。
+        mapped.remove(IamUserPrincipal.ADMIN_ALL_PERMISSION);
+        // 仅数据库标记为超级管理员（is_admin=1）的用户才能获得 admin:all，与菜单数据无关。
         if (user.getIsAdmin() != null && user.getIsAdmin() == 1) {
             mapped.add(IamUserPrincipal.ADMIN_ALL_PERMISSION);
         }
