@@ -46,7 +46,13 @@ export interface UserInfo {
   admin: boolean;
 }
 
-/** 菜单树节点（来自 /api/auth/menus） */
+/**
+ * 菜单树节点。
+ *
+ * 同时来自两个接口（字段一致，后端同用 MenuService.MenuNode record）：
+ *  - /api/auth/menus（当前用户可见菜单树）
+ *  - /api/system/menus/tree（全量菜单树，用于菜单管理与角色授权）
+ */
 export interface MenuNode {
   menuId: number;
   parentId: number | null;
@@ -58,6 +64,10 @@ export interface MenuNode {
   isButton: number;
   sortNum: number;
   metaInfo: string;
+  /** 1=启用 0=停用（菜单管理 tree 接口返回） */
+  status?: number;
+  /** 1=系统保留 0=普通菜单。安全属性只认后端该字段，不凭名称/路由推断。 */
+  isSystem?: number;
   children?: MenuNode[];
 }
 
@@ -622,4 +632,131 @@ export function dataScopeLabel(scope: number): string {
 /** 分配菜单请求体 */
 export interface AssignRoleMenusRequest {
   menuIds: number[];
+}
+
+/* ============================================================
+ * 系统管理 - 菜单管理相关类型
+ * 对应 iam-service 的 MenuController、SysMenu 实体与菜单 DTO
+ * ============================================================ */
+
+/** 菜单类型：1=菜单 2=目录 3=按钮 */
+export const MenuType = { MENU: 1, DIRECTORY: 2, BUTTON: 3 } as const;
+
+/** 菜单状态：0=停用 1=启用 */
+export const MenuStatus = { DISABLED: 0, ENABLED: 1 } as const;
+
+/** 菜单实体（对应 /api/system/menus 列表与 /api/system/menus/{menuId} 详情） */
+export interface SysMenu {
+  menuId: number;
+  parentId: number;
+  menuName: string;
+  /** 1=菜单 2=目录 3=按钮 */
+  menuType: number;
+  routerName: string;
+  path: string;
+  permission: string;
+  metaInfo: string;
+  /** 0=非按钮 1=按钮（由 menuType 推导，客户端不可伪造） */
+  isButton: number;
+  sortNum: number;
+  /** 1=系统保留（仅后端 Flyway 写入），0=普通菜单 */
+  isSystem: number;
+  /** 1=启用 0=停用 */
+  status: number;
+  remark: string;
+  creatorId: number;
+  createTime: string;
+  updaterId: number;
+  updateTime: string;
+}
+
+/**
+ * 创建菜单请求。
+ *
+ * 与后端 CreateMenuRequest 一致：
+ *  - parentId 根节点为 0；
+ *  - status 仅创建时可指定（0/1，默认 1）；
+ *  - isButton / sortNum 后端可空，前端始终显式推导提交；
+ *  - 绝不携带 menuId / isSystem / deleted / 审计字段（不在 DTO 中）。
+ */
+export interface CreateMenuRequest {
+  parentId: number;
+  menuName: string;
+  menuType: number;
+  routerName?: string;
+  path?: string;
+  permission?: string;
+  metaInfo?: string;
+  isButton?: number;
+  sortNum?: number;
+  status?: number;
+  remark?: string;
+}
+
+/**
+ * 更新菜单请求。
+ *
+ * 与后端 UpdateMenuRequest 一致：
+ *  - 不包含 status——状态变更只能走 PUT /{menuId}/status 专用接口；
+ *  - 不包含 isSystem / deleted / creatorId 等服务端字段；
+ *  - isButton / sortNum 后端 @NotNull，前端必须提交。
+ */
+export interface UpdateMenuRequest {
+  parentId: number;
+  menuName: string;
+  menuType: number;
+  routerName?: string;
+  path?: string;
+  permission?: string;
+  metaInfo?: string;
+  isButton: number;
+  sortNum: number;
+  remark?: string;
+}
+
+/** 启停菜单请求（仅 status，0=停用 1=启用） */
+export interface ChangeMenuStatusRequest {
+  status: number;
+}
+
+/** 菜单类型中文标签 */
+export function menuTypeLabel(menuType: number): string {
+  switch (menuType) {
+    case MenuType.MENU:
+      return "菜单";
+    case MenuType.DIRECTORY:
+      return "目录";
+    case MenuType.BUTTON:
+      return "按钮";
+    default:
+      return "未知";
+  }
+}
+
+/** 菜单类型标签类型（用于 Element Plus Tag） */
+export function menuTypeTagType(menuType: number): "primary" | "success" | "warning" | "info" | "" {
+  switch (menuType) {
+    case MenuType.MENU:
+      return "primary";
+    case MenuType.DIRECTORY:
+      return "success";
+    case MenuType.BUTTON:
+      return "warning";
+    default:
+      return "info";
+  }
+}
+
+/** 菜单状态标签 */
+export function menuStatusLabel(status: number): string {
+  return status === MenuStatus.ENABLED ? "启用" : status === MenuStatus.DISABLED ? "停用" : "未知";
+}
+
+export function menuStatusTagType(status: number): "success" | "info" | "" {
+  return status === MenuStatus.ENABLED ? "success" : status === MenuStatus.DISABLED ? "info" : "";
+}
+
+/** 是否按钮节点（安全属性只认后端 isButton/isSystem，不凭名称或路由推断） */
+export function isButtonNode(menu: { isButton?: number }): boolean {
+  return menu.isButton === 1;
 }

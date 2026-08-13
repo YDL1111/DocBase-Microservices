@@ -54,13 +54,13 @@ class FlywayMigrationValidationTest {
     }
 
     @Test
-    void V1到V11迁移应全部成功执行() {
+    void V1到V12迁移应全部成功执行() {
         DataSource ds = dataSource("flyway_full");
         MigrateResult result = flyway(ds, "classpath:db/migration").migrate();
 
-        assertTrue(result.success, "V1→V11 迁移应全部成功");
-        assertEquals(11, result.migrationsExecuted,
-                "应顺序执行 V1、V2、V3、V4、V5、V6、V7、V8、V9、V10、V11 共 11 个迁移");
+        assertTrue(result.success, "V1→V12 迁移应全部成功");
+        assertEquals(12, result.migrationsExecuted,
+                "应顺序执行 V1、V2、V3、V4、V5、V6、V7、V8、V9、V10、V11、V12 共 12 个迁移");
 
         JdbcTemplate jdbc = new JdbcTemplate(ds);
         // V1 建立了 service_metadata
@@ -101,6 +101,42 @@ class FlywayMigrationValidationTest {
                 "SELECT COUNT(*) FROM sys_menu_owner_mutex WHERE id = 1", Integer.class);
         assertNotNull(guardRow);
         assertEquals(1, guardRow, "V11 should insert the id=1 guard row");
+
+        // V12 补齐了"菜单管理"页面与 create/update/delete 按钮种子
+        Integer systemMenuPage = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE router_name = 'SystemMenu' AND deleted = 0", Integer.class);
+        assertNotNull(systemMenuPage);
+        assertEquals(1, systemMenuPage, "V12 应创建 SystemMenu 页面菜单");
+        Integer menuCreateBtn = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE permission = 'system:menu:create' AND is_button = 1 AND deleted = 0", Integer.class);
+        assertEquals(1, menuCreateBtn, "V12 应创建 system:menu:create 按钮");
+        Integer menuUpdateBtn = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE permission = 'system:menu:update' AND is_button = 1 AND deleted = 0", Integer.class);
+        assertEquals(1, menuUpdateBtn, "V12 应创建 system:menu:update 按钮");
+        Integer menuDeleteBtn = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE permission = 'system:menu:delete' AND is_button = 1 AND deleted = 0", Integer.class);
+        assertEquals(1, menuDeleteBtn, "V12 应创建 system:menu:delete 按钮");
+        Integer menuListBtn = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE permission = 'system:menu:list' AND is_button = 1 AND deleted = 0", Integer.class);
+        assertEquals(1, menuListBtn, "system:menu:list 按钮（V6 创建）应仍仅 1 个，V12 不重复插入");
+        // 新菜单均标记为系统保留
+        Integer marked = jdbc.queryForObject(
+                "SELECT is_system FROM sys_menu WHERE router_name = 'SystemMenu'", Integer.class);
+        assertEquals(1, marked, "SystemMenu 页面应为 is_system=1");
+        Integer btnMarked = jdbc.queryForObject(
+                "SELECT is_system FROM sys_menu WHERE permission = 'system:menu:create'", Integer.class);
+        assertEquals(1, btnMarked, "system:menu:create 按钮应为 is_system=1");
+        // system_admin 已关联 SystemMenu 页面
+        Integer roleLink = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_role_menu rm JOIN sys_role r ON r.role_id = rm.role_id "
+                        + "JOIN sys_menu m ON m.menu_id = rm.menu_id "
+                        + "WHERE r.role_key = 'system_admin' AND m.router_name = 'SystemMenu'", Integer.class);
+        assertEquals(1, roleLink, "system_admin 应关联 SystemMenu 页面");
+        // 新关联的管理归属已补齐（V12 写入 owner 表）
+        Integer ownerLink = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu_owner_role mor JOIN sys_menu m ON m.menu_id = mor.menu_id "
+                        + "WHERE m.router_name = 'SystemMenu'", Integer.class);
+        assertEquals(1, ownerLink, "V12 应把 SystemMenu 的管理归属写入 sys_menu_owner_role");
     }
 
     @Test
@@ -511,5 +547,171 @@ class FlywayMigrationValidationTest {
         Integer guardRow = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM sys_menu_owner_mutex WHERE id = 1", Integer.class);
         assertEquals(1, guardRow, "幂等后 id=1 守卫行仍应存在");
+    }
+
+    /* ========================= V12 SystemMenu 种子迁移 ========================= */
+
+    /**
+     * 验证 V12 的真实升级路径与幂等性：
+     *
+     * <ol>
+     *   <li>先用 target=11 把 Flyway 迁到 V11（此时尚无 SystemMenu 页面与
+     *       system:menu:create/update/delete 按钮）</li>
+     *   <li>模拟升级前已存在的 system:menu:create 按钮（is_system=0，无 system_admin
+     *       关联），模拟手工/旧脚本创建的历史数据</li>
+     *   <li>再放开 target 到 V12，继续迁移——V12 的 INSERT 守卫跳过已存在的
+     *       system:menu:create，其余节点被创建；末尾 UPDATE 把历史按钮标记为 is_system=1</li>
+     *   <li>断言：SystemMenu 页面 + 三个新按钮创建、已存在的按钮不重复插入、
+     *       is_system 标记生效、system_admin 关联与 owner 归属补齐（仅限四个新节点）</li>
+     *   <li>防权限/归属扩张：V12 前从 system_admin 撤销的旧菜单授权（sys_role_menu）
+     *       与已转让给其他角色的 owner 在 V12 后保持原状，不被重新写回</li>
+     * </ol>
+     */
+    @Test
+    void V11到V12升级迁移应补齐SystemMenu种子且幂等() {
+        DataSource ds = dataSource("flyway_v12_upgrade");
+
+        // 第一步：迁到 V11（尚无 SystemMenu）
+        Flyway flywayToV11 = Flyway.configure()
+                .dataSource(ds)
+                .locations("classpath:db/migration")
+                .baselineOnMigrate(true)
+                .target("11")
+                .load();
+        MigrateResult toV11 = flywayToV11.migrate();
+        assertTrue(toV11.success, "V1–V11 迁移应全部成功");
+        assertEquals(11, toV11.migrationsExecuted, "应执行 V1–V11 共 11 个迁移");
+
+        JdbcTemplate jdbc = new JdbcTemplate(ds);
+        Integer pageBefore = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE router_name = 'SystemMenu'", Integer.class);
+        assertEquals(0, pageBefore, "V11 时期不应有 SystemMenu 页面");
+
+        // 第二步：模拟升级前已存在的 system:menu:create 按钮（无 is_system 标记、无关联），
+        // 以及一个"被软删除"的 SystemMenu 页面行（应被 V12 重新种子恢复）
+        Long systemRoot = jdbc.queryForObject(
+                "SELECT menu_id FROM sys_menu WHERE router_name = 'SystemManage' AND menu_type = 2", Long.class);
+        assertNotNull(systemRoot, "SystemManage 目录应存在");
+        jdbc.update("INSERT INTO sys_menu (parent_id, menu_name, menu_type, router_name, path, permission, is_button, sort_num, status, remark, is_system) "
+                        + "VALUES (?, '新建菜单', 3, '', '', 'system:menu:create', 1, 53, 1, '历史按钮', 0)",
+                systemRoot);
+        // 软删除的 SystemMenu 行（deleted=1）：V12 的 NOT EXISTS 守卫（deleted=0）不应被它抑制，
+        // 应重新插入一条未删除的 SystemMenu 页面
+        jdbc.update("INSERT INTO sys_menu (parent_id, menu_name, menu_type, router_name, path, permission, is_button, sort_num, status, remark, is_system, deleted) "
+                        + "VALUES (?, '菜单管理', 1, 'SystemMenu', '/system/menu', 'system:menu:list', 0, 52, 1, '已删除旧行', 1, 1)",
+                systemRoot);
+
+        // 模拟管理员在 V11 时代的既有授权调整（V12 必须保持，不得恢复）：
+        //   a) 从 system_admin 撤销"用户管理"菜单的 sys_role_menu 关联；
+        //   b) 把"角色管理"菜单的 owner 转让给 knowledge_admin（replaceOwners 语义：
+        //      清空原 owner 行后写入新行）。
+        Long systemAdminId = jdbc.queryForObject(
+                "SELECT role_id FROM sys_role WHERE role_key = 'system_admin'", Long.class);
+        Long systemUserMenuId = jdbc.queryForObject(
+                "SELECT menu_id FROM sys_menu WHERE router_name = 'SystemUser'", Long.class);
+        Long systemRoleMenuId = jdbc.queryForObject(
+                "SELECT menu_id FROM sys_menu WHERE router_name = 'SystemRole'", Long.class);
+        Long knowledgeAdminId = jdbc.queryForObject(
+                "SELECT role_id FROM sys_role WHERE role_key = 'knowledge_admin'", Long.class);
+        assertNotNull(systemAdminId);
+        assertNotNull(systemUserMenuId);
+        assertNotNull(systemRoleMenuId);
+        assertNotNull(knowledgeAdminId, "V7 应创建 knowledge_admin 角色");
+        // a) 撤销 system_admin 对 SystemUser 的授权（V6 种子已建立该关联）
+        jdbc.update("DELETE FROM sys_role_menu WHERE role_id = ? AND menu_id = ?",
+                systemAdminId, systemUserMenuId);
+        // b) 把 SystemRole 的 owner 转让给 knowledge_admin
+        jdbc.update("DELETE FROM sys_menu_owner_role WHERE menu_id = ?", systemRoleMenuId);
+        jdbc.update("INSERT INTO sys_menu_owner_role (menu_id, role_id) VALUES (?, ?)",
+                systemRoleMenuId, knowledgeAdminId);
+
+        // 第三步：放开 target 到 V12，继续迁移
+        Flyway flywayToV12 = Flyway.configure()
+                .dataSource(ds)
+                .locations("classpath:db/migration")
+                .target("12")
+                .load();
+        MigrateResult toV12 = flywayToV12.migrate();
+        assertTrue(toV12.success, "V12 迁移应成功升级历史数据");
+        assertEquals(1, toV12.migrationsExecuted, "本次应执行 V12 一个迁移");
+
+        // 第四步：断言种子结果
+        // SystemMenu 页面被创建（软删旧行不抑制重新种子：未删除行应恰 1 条）
+        Integer pageAfter = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE router_name = 'SystemMenu' AND deleted = 0", Integer.class);
+        assertEquals(1, pageAfter, "V12 应重新种子 SystemMenu 页面（软删旧行不抑制）");
+        Integer pageDeleted = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE router_name = 'SystemMenu' AND deleted = 1", Integer.class);
+        assertEquals(1, pageDeleted, "软删旧行应保留（不被 UPDATE 复活）");
+        // 已存在的 system:menu:create 按钮不重复插入（仍仅 1 行）
+        Integer createCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE permission = 'system:menu:create'", Integer.class);
+        assertEquals(1, createCount, "V12 不应重复插入已存在的 system:menu:create 按钮");
+        // 历史按钮被标记为 is_system=1
+        Integer createMarked = jdbc.queryForObject(
+                "SELECT is_system FROM sys_menu WHERE permission = 'system:menu:create'", Integer.class);
+        assertEquals(1, createMarked, "V12 末尾 UPDATE 应把历史 system:menu:create 标记为 is_system=1");
+        // 新按钮 update/delete 被创建
+        Integer updateCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE permission = 'system:menu:update' AND deleted = 0", Integer.class);
+        assertEquals(1, updateCount, "V12 应创建 system:menu:update 按钮");
+        Integer deleteCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE permission = 'system:menu:delete' AND deleted = 0", Integer.class);
+        assertEquals(1, deleteCount, "V12 应创建 system:menu:delete 按钮");
+        // system_admin 已关联 SystemMenu 页面与全部四个按钮
+        Integer menuLinks = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_role_menu rm JOIN sys_role r ON r.role_id = rm.role_id "
+                        + "JOIN sys_menu m ON m.menu_id = rm.menu_id "
+                        + "WHERE r.role_key = 'system_admin' AND m.router_name = 'SystemMenu'", Integer.class);
+        assertEquals(1, menuLinks, "system_admin 应关联 SystemMenu 页面");
+        Integer btnLinks = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_role_menu rm JOIN sys_role r ON r.role_id = rm.role_id "
+                        + "JOIN sys_menu m ON m.menu_id = rm.menu_id "
+                        + "WHERE r.role_key = 'system_admin' AND m.permission IN "
+                        + "('system:menu:create','system:menu:update','system:menu:delete')", Integer.class);
+        assertEquals(3, btnLinks, "system_admin 应关联三个菜单管理按钮");
+        // owner 归属补齐：SystemMenu 页面 + 三个新按钮在归属表中有 system_admin 行
+        Integer ownerCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu_owner_role mor JOIN sys_menu m ON m.menu_id = mor.menu_id "
+                        + "JOIN sys_role r ON r.role_id = mor.role_id "
+                        + "WHERE r.role_key = 'system_admin' AND (m.router_name = 'SystemMenu' "
+                        + "OR m.permission IN ('system:menu:create','system:menu:update','system:menu:delete'))",
+                Integer.class);
+        assertEquals(4, ownerCount, "V12 应补齐 SystemMenu 页面与三个按钮的管理归属");
+
+        // 防权限/归属扩张：V12 不得恢复已撤销的授权与已转让的 owner
+        Integer revokedLink = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_role_menu WHERE role_id = ? AND menu_id = ?",
+                Integer.class, systemAdminId, systemUserMenuId);
+        assertEquals(0, revokedLink, "V12 不得恢复已从 system_admin 撤销的 SystemUser 授权");
+        Integer transferredOwner = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu_owner_role WHERE menu_id = ? AND role_id = ?",
+                Integer.class, systemRoleMenuId, knowledgeAdminId);
+        assertEquals(1, transferredOwner, "转让后的 owner（knowledge_admin）应保持不变");
+        Integer sysAdminReAdded = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu_owner_role WHERE menu_id = ? AND role_id = ?",
+                Integer.class, systemRoleMenuId, systemAdminId);
+        assertEquals(0, sysAdminReAdded, "V12 不得把 system_admin 重新写回已转让的 SystemRole owner");
+    }
+
+    @Test
+    void V12迁移应幂等_重复执行不报错() {
+        DataSource ds = dataSource("flyway_v12_idempotent");
+        Flyway f = flyway(ds, "classpath:db/migration");
+
+        f.migrate();
+        MigrateResult second = f.migrate();
+        assertEquals(0, second.migrationsExecuted, "重复迁移不应再执行任何脚本");
+
+        JdbcTemplate jdbc = new JdbcTemplate(ds);
+        Integer pageCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE router_name = 'SystemMenu'", Integer.class);
+        assertEquals(1, pageCount, "幂等后 SystemMenu 页面仍应仅 1 行");
+        Integer createCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE permission = 'system:menu:create'", Integer.class);
+        assertEquals(1, createCount, "幂等后 system:menu:create 按钮仍应仅 1 行");
+        Integer marked = jdbc.queryForObject(
+                "SELECT is_system FROM sys_menu WHERE router_name = 'SystemMenu'", Integer.class);
+        assertEquals(1, marked, "幂等后 SystemMenu 仍应为 is_system=1");
     }
 }

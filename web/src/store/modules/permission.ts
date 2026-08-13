@@ -49,7 +49,8 @@ const componentRegistry: Record<string, () => Promise<any>> = {
   // 系统管理（目录节点用 RouterViewWrapper 以渲染子路由）
   SystemManage: RouterViewWrapper,
   SystemUser: () => import("@/views/system/user/index.vue"),
-  SystemRole: () => import("@/views/system/role/index.vue")
+  SystemRole: () => import("@/views/system/role/index.vue"),
+  SystemMenu: () => import("@/views/system/menu/index.vue")
 };
 
 /** 根据 routerName 解析组件，未命中则回退占位页 */
