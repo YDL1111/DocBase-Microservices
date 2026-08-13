@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS sys_menu (
     meta_info   VARCHAR(1024) NOT NULL DEFAULT '{}',
     is_button   TINYINT       NOT NULL DEFAULT 0,
     sort_num    INT           NOT NULL DEFAULT 0,
+    is_system   TINYINT       NOT NULL DEFAULT 0,
     status      TINYINT       NOT NULL DEFAULT 1,
     remark      VARCHAR(512)  NOT NULL DEFAULT '',
     creator_id  BIGINT                 ,
@@ -70,6 +71,15 @@ CREATE TABLE IF NOT EXISTS sys_role_menu (
     PRIMARY KEY (role_id, menu_id)
 );
 
+-- 菜单所有者角色归属（资源归属，不参与权限计算）。与 sys_role_menu 严格分开：
+-- sys_role_menu 承担菜单可见性 + permission 授权；本表仅用于资源级归属校验，
+-- 绝不因"归属继承"写入 sys_role_menu 而给角色成员新增 permission。
+CREATE TABLE IF NOT EXISTS sys_menu_owner_role (
+    menu_id BIGINT NOT NULL,
+    role_id BIGINT NOT NULL,
+    PRIMARY KEY (menu_id, role_id)
+);
+
 -- 超级管理员变更的数据库级全局互斥锁（单行守卫记录）。
 -- 与生产 Flyway 迁移 V3__admin_mutex.sql 对应，使集成测试能在 H2 上验证
 -- 跨实例串行化的竞争逻辑：事务内对守卫行的 UPDATE 获取行锁并持有到提交，
@@ -79,3 +89,12 @@ CREATE TABLE IF NOT EXISTS sys_admin_mutex (
     lock_version INT     NOT NULL DEFAULT 0
 );
 MERGE INTO sys_admin_mutex(id, lock_version) KEY(id) VALUES (1, 0);
+
+-- 菜单所有者（owner）生命周期的数据库级全局互斥锁。与生产 Flyway 迁移
+-- V11__menu_owner_mutex.sql 对应，供集成测试在 H2 上验证 owner 替换/角色停用/
+-- 角色删除/菜单 owner 继承之间的跨实例串行化（与 sys_admin_mutex 同一套协议）。
+CREATE TABLE IF NOT EXISTS sys_menu_owner_mutex (
+    id           TINYINT NOT NULL PRIMARY KEY,
+    lock_version INT     NOT NULL DEFAULT 0
+);
+MERGE INTO sys_menu_owner_mutex(id, lock_version) KEY(id) VALUES (1, 0);

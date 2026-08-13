@@ -2,9 +2,11 @@ package com.docbase.iam.menu;
 
 import com.docbase.common.core.ApiResponse;
 import com.docbase.iam.menu.domain.SysMenu;
+import com.docbase.iam.menu.dto.ChangeMenuStatusRequest;
+import com.docbase.iam.menu.dto.CreateMenuRequest;
+import com.docbase.iam.menu.dto.MenuOwnerRolesRequest;
+import com.docbase.iam.menu.dto.UpdateMenuRequest;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -38,41 +40,50 @@ public class MenuController {
         return ApiResponse.success(menuService.getById(menuId));
     }
 
+    /**
+     * 查询菜单的有效 owner（所有者角色）ID 列表。仅超级管理员（admin:all）可调用。
+     */
+    @GetMapping("/{menuId}/owners")
+    @PreAuthorize("hasAuthority('admin:all')")
+    ApiResponse<List<Long>> getOwners(@PathVariable Long menuId) {
+        return ApiResponse.success(menuService.getOwners(menuId));
+    }
+
+    /**
+     * 全量替换（转让）菜单的 owner 角色。仅超级管理员（admin:all）可调用。
+     *
+     * <p>空列表表示超级管理员明确选择"系统托管"。该接口只写 sys_menu_owner_role，
+     * 不写 sys_role_menu、不授予任何 permission。
+     */
+    @PutMapping("/{menuId}/owners")
+    @PreAuthorize("hasAuthority('admin:all')")
+    ApiResponse<Void> replaceOwners(@PathVariable Long menuId,
+                                    @Valid @RequestBody MenuOwnerRolesRequest request) {
+        menuService.replaceOwners(menuId, request.roleIds());
+        return ApiResponse.success(null);
+    }
+
     @PostMapping
     @PreAuthorize("hasAuthority('system:menu:create') or hasAuthority('admin:all')")
-    ApiResponse<Long> create(@Valid @RequestBody MenuRequest request) {
-        SysMenu menu = new SysMenu();
-        menu.setParentId(request.parentId());
-        menu.setMenuName(request.menuName());
-        menu.setMenuType(request.menuType());
-        menu.setRouterName(request.routerName());
-        menu.setPath(request.path());
-        menu.setPermission(request.permission());
-        menu.setMetaInfo(request.metaInfo());
-        menu.setIsButton(request.isButton());
-        menu.setSortNum(request.sortNum());
-        menu.setStatus(request.status());
-        menu.setRemark(request.remark());
-        return ApiResponse.success(menuService.create(menu));
+    ApiResponse<Long> create(@Valid @RequestBody CreateMenuRequest request) {
+        return ApiResponse.success(menuService.create(request));
     }
 
     @PutMapping("/{menuId}")
     @PreAuthorize("hasAuthority('system:menu:update') or hasAuthority('admin:all')")
-    ApiResponse<Void> update(@PathVariable Long menuId, @Valid @RequestBody MenuRequest request) {
-        SysMenu menu = new SysMenu();
-        menu.setMenuId(menuId);
-        menu.setParentId(request.parentId());
-        menu.setMenuName(request.menuName());
-        menu.setMenuType(request.menuType());
-        menu.setRouterName(request.routerName());
-        menu.setPath(request.path());
-        menu.setPermission(request.permission());
-        menu.setMetaInfo(request.metaInfo());
-        menu.setIsButton(request.isButton());
-        menu.setSortNum(request.sortNum());
-        menu.setStatus(request.status());
-        menu.setRemark(request.remark());
-        menuService.update(menu);
+    ApiResponse<Void> update(@PathVariable Long menuId, @Valid @RequestBody UpdateMenuRequest request) {
+        menuService.update(menuId, request);
+        return ApiResponse.success(null);
+    }
+
+    /**
+     * 启用/停用菜单。停用后该菜单从用户可见树与权限集消失（关联保留，重启用即恢复）。
+     */
+    @PutMapping("/{menuId}/status")
+    @PreAuthorize("hasAuthority('system:menu:update') or hasAuthority('admin:all')")
+    ApiResponse<Void> changeStatus(@PathVariable Long menuId,
+                                   @Valid @RequestBody ChangeMenuStatusRequest request) {
+        menuService.changeStatus(menuId, request);
         return ApiResponse.success(null);
     }
 
@@ -82,17 +93,4 @@ public class MenuController {
         menuService.delete(menuId);
         return ApiResponse.success(null);
     }
-
-    public record MenuRequest(
-            @NotNull Long parentId,
-            @NotBlank String menuName,
-            @NotNull Integer menuType,
-            String routerName,
-            String path,
-            String permission,
-            String metaInfo,
-            Integer isButton,
-            Integer sortNum,
-            Integer status,
-            String remark) {}
 }

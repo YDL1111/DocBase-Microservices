@@ -24,7 +24,11 @@ services:
       - --default-time-zone=+08:00
     volumes:
       - mysql-data:/var/lib/mysql
-      - ../database/bootstrap:/docker-entrypoint-initdb.d:ro
+      # 仅保留"建库建用户"(001)与"Nacos 配置表"(010)作为 MySQL init 脚本。
+      # 020-060 业务菜单/角色种子已迁入 Flyway 迁移(V6-V9)，不再挂载为 init 脚本，
+      # 避免全新数据卷下 init 脚本先于 Flyway 建表执行而导致初始化失败。
+      - ../database/bootstrap/001-create-schemas.sh:/docker-entrypoint-initdb.d/001-create-schemas.sh:ro
+      - ../database/bootstrap/010-nacos-schema.sql:/docker-entrypoint-initdb.d/010-nacos-schema.sql:ro
     expose:
       - "3306"
     networks:

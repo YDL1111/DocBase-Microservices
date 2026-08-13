@@ -1,7 +1,9 @@
 package com.docbase.iam.menu;
 
 import com.docbase.iam.menu.domain.SysMenu;
+import com.docbase.iam.menu.mapper.MenuOwnerMutexMapper;
 import com.docbase.iam.menu.mapper.SysMenuMapper;
+import com.docbase.iam.menu.mapper.SysMenuOwnerRoleMapper;
 import com.docbase.iam.role.mapper.SysRoleMenuMapper;
 import com.docbase.iam.security.TokenStore;
 import org.junit.jupiter.api.Test;
@@ -16,9 +18,9 @@ class MenuTreeTest {
     @Test
     void menuNodeRecordHoldsChildren() {
         MenuService.MenuNode child = new MenuService.MenuNode(
-                2L, 1L, "用户", "", "", "", 1, 0, 1, "{}", List.of());
+                2L, 1L, "用户", "", "", "", 1, 0, 1, "{}", 1, 0, List.of());
         MenuService.MenuNode parent = new MenuService.MenuNode(
-                1L, 0L, "系统", "", "", "", 2, 0, 1, "{}", List.of(child));
+                1L, 0L, "系统", "", "", "", 2, 0, 1, "{}", 1, 0, List.of(child));
 
         assertEquals(1, parent.children().size());
         assertEquals("用户", parent.children().get(0).menuName());
@@ -28,8 +30,11 @@ class MenuTreeTest {
     void treeBuildsCorrectlyFromFlatList() {
         SysMenuMapper mapper = mock(SysMenuMapper.class);
         SysRoleMenuMapper roleMenuMapper = mock(SysRoleMenuMapper.class);
+        SysMenuOwnerRoleMapper ownerRoleMapper = mock(SysMenuOwnerRoleMapper.class);
+        MenuOwnerMutexMapper ownerMutexMapper = mock(MenuOwnerMutexMapper.class);
         TokenStore tokenStore = mock(TokenStore.class);
-        MenuService service = new MenuService(mapper, roleMenuMapper, tokenStore);
+        MenuService service = new MenuService(mapper, roleMenuMapper, ownerRoleMapper, ownerMutexMapper,
+                mock(OwnerLifecycleLockHook.class), tokenStore);
 
         SysMenu root = menu(1L, 0L, "系统管理", 1);
         SysMenu user = menu(2L, 1L, "用户管理", 1);

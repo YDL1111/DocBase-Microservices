@@ -31,6 +31,14 @@ public class SysMenu {
 
     private Integer sortNum;
 
+    /**
+     * 系统保留菜单标志。
+     *
+     * <p>1=系统保留菜单，0=普通菜单。API 创建的菜单强制为 0，仅由 Flyway 迁移写入 1。
+     * 系统保留菜单禁止非超级管理员修改、停用，且任何人都不可删除。
+     */
+    private Integer isSystem;
+
     private Integer status;
 
     private String remark;
@@ -66,6 +74,8 @@ public class SysMenu {
     public void setIsButton(Integer isButton) { this.isButton = isButton; }
     public Integer getSortNum() { return sortNum; }
     public void setSortNum(Integer sortNum) { this.sortNum = sortNum; }
+    public Integer getIsSystem() { return isSystem; }
+    public void setIsSystem(Integer isSystem) { this.isSystem = isSystem; }
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }
     public String getRemark() { return remark; }

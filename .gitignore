@@ -22,3 +22,7 @@ Thumbs.db
 
 # Local dev-only RSA key pair for IAM JWT signing. Never commit.
 .local/
+
+# Reasonix execution-environment metadata (agent/task state). Never commit.
+.reasonix/
+reasonix.toml

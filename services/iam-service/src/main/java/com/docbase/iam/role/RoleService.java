@@ -4,7 +4,10 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.docbase.common.core.BusinessException;
 import com.docbase.iam.auth.PermissionMapping;
+import com.docbase.iam.menu.OwnerLifecycleLockHook;
+import com.docbase.iam.menu.mapper.MenuOwnerMutexMapper;
 import com.docbase.iam.menu.mapper.SysMenuMapper;
+import com.docbase.iam.menu.mapper.SysMenuOwnerRoleMapper;
 import com.docbase.iam.role.domain.SysRole;
 import com.docbase.iam.role.domain.SysRoleMenu;
 import com.docbase.iam.role.dto.AssignRoleMenusRequest;
@@ -38,16 +41,25 @@ public class RoleService {
 
     private final SysRoleMapper roleMapper;
     private final SysRoleMenuMapper roleMenuMapper;
+    private final SysMenuOwnerRoleMapper ownerRoleMapper;
+    private final MenuOwnerMutexMapper ownerMutexMapper;
+    private final OwnerLifecycleLockHook ownerLockHook;
     private final SysUserMapper userMapper;
     private final SysUserRoleMapper userRoleMapper;
     private final SysMenuMapper menuMapper;
     private final TokenStore tokenStore;
 
     public RoleService(SysRoleMapper roleMapper, SysRoleMenuMapper roleMenuMapper,
+                       SysMenuOwnerRoleMapper ownerRoleMapper,
+                       MenuOwnerMutexMapper ownerMutexMapper,
+                       OwnerLifecycleLockHook ownerLockHook,
                        SysUserMapper userMapper, SysUserRoleMapper userRoleMapper,
                        SysMenuMapper menuMapper, TokenStore tokenStore) {
         this.roleMapper = roleMapper;
         this.roleMenuMapper = roleMenuMapper;
+        this.ownerRoleMapper = ownerRoleMapper;
+        this.ownerMutexMapper = ownerMutexMapper;
+        this.ownerLockHook = ownerLockHook;
         this.userMapper = userMapper;
         this.userRoleMapper = userRoleMapper;
         this.menuMapper = menuMapper;
@@ -161,11 +173,22 @@ public class RoleService {
     @Transactional
     public void delete(Long roleId) {
         IamUserPrincipal caller = currentPrincipal();
+
+        // [C][P0] 锁必须先于任何数据库读取：MySQL REPEATABLE READ 下，事务的第一个
+        // 普通 SELECT 会建立一致性读快照，此后全部普通 SELECT 都基于该快照；若先查询
+        // 再加锁，等待锁期间其它事务已提交的变更（owner 转让、其它角色删除）对当前
+        // 事务不可见，最后-owner 校验会基于旧快照得出过期结论。lockGuardRow() 是当前
+        // 读，锁后的第一个普通 SELECT 才建立快照——因此锁后读取的一定是拿到锁那一刻
+        // 的最新已提交数据。角色、owner 关联的全部校验在锁内重新执行。
+        lockOwnerGuardRow();
         SysRole existing = roleMapper.selectById(roleId);
         if (existing == null || isDeleted(existing)) {
             throw new BusinessException("ROLE_NOT_FOUND", "role not found");
         }
         assertCanMutate(caller, existing);
+        // [B] 生命周期校验：若本角色是任意未删除菜单的最后一个有效 owner，拒绝删除，
+        // 否则该菜单会变成普通管理员无法管理的孤儿资源。
+        assertNotLastMenuOwner(roleId);
 
         // 先捕获受影响用户，再删除关联，保证失效通知不丢（全或无语义）。
         List<Long> affectedUserIds = userRoleMapper.selectList(
@@ -173,6 +196,10 @@ public class RoleService {
                 .stream().map(SysUserRole::getUserId).distinct().toList();
 
         roleMenuMapper.delete(new QueryWrapper<SysRoleMenu>().eq("role_id", roleId));
+        // 角色采用逻辑删除，数据库外键 ON DELETE CASCADE 不会被触发；必须显式清理
+        // 该角色作为"菜单所有者"的归属关系，避免归属孤儿行残留。
+        ownerRoleMapper.delete(new QueryWrapper<com.docbase.iam.menu.domain.SysMenuOwnerRole>()
+                .eq("role_id", roleId));
         userRoleMapper.delete(new QueryWrapper<SysUserRole>().eq("role_id", roleId));
         roleMapper.deleteById(roleId);
 
@@ -182,11 +209,22 @@ public class RoleService {
     @Transactional
     public void changeStatus(Long roleId, ChangeRoleStatusRequest request) {
         IamUserPrincipal caller = currentPrincipal();
+
+        // [B][C][P0] 停用角色会使其不再算有效 owner：锁必须先于任何数据库读取
+        // （同 delete 的 REPEATABLE READ 快照理由），并在锁内重新读取角色、执行
+        // 最后-owner 校验与写入。启用（status=1）不减少有效 owner，无需加锁/校验。
+        boolean disabling = request.status() != null && request.status() == 0;
+        if (disabling) {
+            lockOwnerGuardRow();
+        }
         SysRole existing = roleMapper.selectById(roleId);
         if (existing == null || isDeleted(existing)) {
             throw new BusinessException("ROLE_NOT_FOUND", "role not found");
         }
         assertCanMutate(caller, existing);
+        if (disabling) {
+            assertNotLastMenuOwner(roleId);
+        }
 
         existing.setStatus(request.status());
         roleMapper.updateById(existing);
@@ -251,6 +289,44 @@ public class RoleService {
         if (caller.admin()) return;
         if (target.getIsSystem() != null && target.getIsSystem() == 1) {
             throw new BusinessException("ROLE_NOT_FOUND", "role not found");
+        }
+    }
+
+    /**
+     * 生命周期校验：拒绝让任意未删除菜单失去其最后一个有效 owner 的角色删除/停用。
+     *
+     * <p>"有效 owner" = 归属行存在 + 该角色 status=1 且 deleted=0。已停用/已删除的
+     * 备用角色不被计入——若唯一备用 owner 已停用/已删除，删除/停用目标角色仍会拒绝
+     * （见 {@link SysMenuOwnerRoleMapper#selectMenusWhereRoleIsLastOwner}）。
+     *
+     * <p>本方法只做读取判断，自身不加锁。调用方（{@link #delete} / {@link #changeStatus}）
+     * 必须在与 {@link MenuOwnerMutexMapper#lockGuardRow()} 同一个事务内调用——守卫行
+     * UPDATE 的行锁把"读取有效 owner 集合 → 判断是否最后一个 → 执行删除/停用"整段
+     * 串行化，两个并发操作不可能同时看到"还有其它 owner"后都通过检查。
+     */
+    private void assertNotLastMenuOwner(Long roleId) {
+        List<Long> orphanMenus = ownerRoleMapper.selectMenusWhereRoleIsLastOwner(roleId);
+        if (orphanMenus != null && !orphanMenus.isEmpty()) {
+            throw new BusinessException("ROLE_LAST_MENU_OWNER",
+                    "role is the last effective owner of menu(s); transfer ownership first");
+        }
+    }
+
+    /**
+     * 在事务内锁定 owner 生命周期守卫行，取得行级写锁。
+     *
+     * <p>语义同 {@link MenuOwnerMutexMapper}：对守卫行（主键 id=1）执行 UPDATE 取得
+     * 行级写锁，由数据库持有到当前事务提交/回滚。守卫行缺失（迁移未执行）时抛
+     * MIGRATION_MISSING。
+     */
+    private void lockOwnerGuardRow() {
+        // 测试接缝：生产默认 no-op（NoopOwnerLifecycleLockHook），测试用 @MockitoBean
+        // 替换为固定交错逻辑（锁前暂停/放行）。
+        ownerLockHook.beforeLock();
+        int affected = ownerMutexMapper.lockGuardRow();
+        if (affected == 0) {
+            throw new BusinessException("MIGRATION_MISSING",
+                    "sys_menu_owner_mutex guard row missing — run Flyway migration V11");
         }
     }
 

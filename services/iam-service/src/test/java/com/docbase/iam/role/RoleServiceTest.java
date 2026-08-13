@@ -1,7 +1,10 @@
 package com.docbase.iam.role;
 
 import com.docbase.common.core.BusinessException;
+import com.docbase.iam.menu.OwnerLifecycleLockHook;
+import com.docbase.iam.menu.mapper.MenuOwnerMutexMapper;
 import com.docbase.iam.menu.mapper.SysMenuMapper;
+import com.docbase.iam.menu.mapper.SysMenuOwnerRoleMapper;
 import com.docbase.iam.role.domain.SysRole;
 import com.docbase.iam.role.domain.SysRoleMenu;
 import com.docbase.iam.role.dto.AssignRoleMenusRequest;
@@ -37,6 +40,8 @@ class RoleServiceTest {
 
     private SysRoleMapper roleMapper;
     private SysRoleMenuMapper roleMenuMapper;
+    private SysMenuOwnerRoleMapper ownerRoleMapper;
+    private MenuOwnerMutexMapper ownerMutexMapper;
     private SysUserMapper userMapper;
     private SysUserRoleMapper userRoleMapper;
     private SysMenuMapper menuMapper;
@@ -47,11 +52,17 @@ class RoleServiceTest {
     void setUp() {
         roleMapper = mock(SysRoleMapper.class);
         roleMenuMapper = mock(SysRoleMenuMapper.class);
+        ownerRoleMapper = mock(SysMenuOwnerRoleMapper.class);
+        ownerMutexMapper = mock(MenuOwnerMutexMapper.class);
         userMapper = mock(SysUserMapper.class);
         userRoleMapper = mock(SysUserRoleMapper.class);
         menuMapper = mock(SysMenuMapper.class);
         tokenStore = mock(TokenStore.class);
-        roleService = new RoleService(roleMapper, roleMenuMapper, userMapper, userRoleMapper, menuMapper, tokenStore);
+        // owner 生命周期互斥守卫默认存在（迁移已执行），避免各用例重复桩装。
+        when(ownerMutexMapper.lockGuardRow()).thenReturn(1);
+        roleService = new RoleService(roleMapper, roleMenuMapper, ownerRoleMapper,
+                ownerMutexMapper, mock(OwnerLifecycleLockHook.class),
+                userMapper, userRoleMapper, menuMapper, tokenStore);
     }
 
     @AfterEach
@@ -291,6 +302,19 @@ class RoleServiceTest {
         verify(tokenStore).bumpAuthVersion(51L);
     }
 
+    @Test
+    void delete_删除角色时同步清理其菜单所有者归属() {
+        setCaller(1, true);
+        when(roleMapper.selectById(8L)).thenReturn(role(8, 0));
+        when(userRoleMapper.selectList(any())).thenReturn(List.of());
+
+        roleService.delete(8L);
+
+        verify(roleMapper).deleteById((Long) 8L);
+        // 逻辑删除不会触发 ON DELETE CASCADE，必须显式清理该角色的菜单所有者归属。
+        verify(ownerRoleMapper).delete(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
+    }
+
     /* ========================= changeStatus ========================= */
 
     @Test
@@ -315,6 +339,59 @@ class RoleServiceTest {
         verify(roleMapper).updateById(any(SysRole.class));
         verify(tokenStore).evictPermissions(60L);
         verify(tokenStore).bumpAuthVersion(60L);
+    }
+
+    /* ========================= 最后有效 owner 生命周期校验 ========================= */
+
+    @Test
+    void changeStatus_停用最后一个有效owner角色被拒绝() {
+        setCaller(1, true);
+        when(roleMapper.selectById(9L)).thenReturn(role(9, 0));
+        // 角色 9 是某未删除菜单的唯一有效 owner
+        when(ownerRoleMapper.selectMenusWhereRoleIsLastOwner(9L)).thenReturn(List.of(500L));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> roleService.changeStatus(9L, new ChangeRoleStatusRequest(0)));
+        assertEquals("ROLE_LAST_MENU_OWNER", ex.code());
+        verify(roleMapper, never()).updateById(any(SysRole.class));
+    }
+
+    @Test
+    void changeStatus_存在其他有效owner时允许停用() {
+        setCaller(1, true);
+        when(roleMapper.selectById(10L)).thenReturn(role(10, 0));
+        when(ownerRoleMapper.selectMenusWhereRoleIsLastOwner(10L)).thenReturn(List.of());
+        when(userRoleMapper.selectList(any())).thenReturn(List.of());
+
+        roleService.changeStatus(10L, new ChangeRoleStatusRequest(0));
+
+        verify(roleMapper).updateById(any(SysRole.class));
+    }
+
+    @Test
+    void delete_删除最后一个有效owner角色被拒绝() {
+        setCaller(1, true);
+        when(roleMapper.selectById(11L)).thenReturn(role(11, 0));
+        when(ownerRoleMapper.selectMenusWhereRoleIsLastOwner(11L)).thenReturn(List.of(501L));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> roleService.delete(11L));
+        assertEquals("ROLE_LAST_MENU_OWNER", ex.code());
+        verify(roleMapper, never()).deleteById(any(Long.class));
+        verify(ownerRoleMapper, never()).delete(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
+    }
+
+    @Test
+    void delete_存在其他有效owner时允许删除并清理归属() {
+        setCaller(1, true);
+        when(roleMapper.selectById(12L)).thenReturn(role(12, 0));
+        when(ownerRoleMapper.selectMenusWhereRoleIsLastOwner(12L)).thenReturn(List.of());
+        when(userRoleMapper.selectList(any())).thenReturn(List.of());
+
+        roleService.delete(12L);
+
+        verify(roleMapper).deleteById((Long) 12L);
+        verify(ownerRoleMapper).delete(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
     }
 
     /* ========================= assignMenus ========================= */
