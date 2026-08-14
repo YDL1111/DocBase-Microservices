@@ -130,6 +130,10 @@ Authorization: Bearer <accessToken>
 | PUT | `/api/system/roles/{roleId}/status` | `system:role:update` |
 | GET | `/api/system/roles/{roleId}/menus` | `system:role:list` |
 
+角色停用或删除时，若该角色仍是某些菜单的唯一有效 Owner，服务端返回
+`ROLE_LAST_MENU_OWNER` 并拒绝操作。应先将这些菜单的管理归属转让给其他有效角色；
+不得通过自动清空 Owner 绕过该保护。
+
 ### 菜单管理
 
 | 方法 | 路径 | 权限 |
@@ -140,6 +144,26 @@ Authorization: Bearer <accessToken>
 | POST | `/api/system/menus` | `system:menu:create` |
 | PUT | `/api/system/menus/{menuId}` | `system:menu:update` |
 | DELETE | `/api/system/menus/{menuId}` | `system:menu:delete` |
+| GET | `/api/system/menus/{menuId}/owners` | `admin:all` |
+| PUT | `/api/system/menus/{menuId}/owners` | `admin:all` |
+
+### 菜单管理归属（Owner）
+
+`GET /api/system/menus/{menuId}/owners` 返回当前**有效** Owner 的角色 ID 列表；已停用或已删除角色不会出现在结果中。
+
+`PUT /api/system/menus/{menuId}/owners` 按全量替换语义提交：
+
+```json
+{
+  "roleIds": [1, 2, 3]
+}
+```
+
+`roleIds` 必须是最多 100 个正整数，服务端会去重并要求候选角色存在、启用且未删除。空数组 `[]` 合法，表示该菜单由系统托管：不归属任何普通角色，仅超级管理员可管理。
+
+Owner 只写入 `sys_menu_owner_role`，用于界定菜单管理权；角色菜单 permission 授权只写入 `sys_role_menu`。两者严格分离：设置 Owner 不会授予该菜单 permission，也绝不能通过角色菜单授权接口实现 Owner 管理。
+
+> 非阻断技术债：系统预置菜单未来应使用稳定业务标识或唯一约束。当前 Flyway V12 为兼容升级，仍通过 `routerName`/`permission` 识别历史系统节点；本阶段未引入 `seed_key` 或进行数据库重构。
 
 ---
 
@@ -175,6 +199,7 @@ Authorization: Bearer <accessToken>
 | 400 | `USER_NOT_FOUND` | 用户不存在 |
 | 400 | `ROLE_NOT_FOUND` | 角色不存在 |
 | 400 | `MENU_NOT_FOUND` | 菜单不存在 |
+| 400 | `ROLE_LAST_MENU_OWNER` | 角色仍是某些菜单的唯一有效 Owner，需先转让菜单归属 |
 | 400 | `MENU_HAS_CHILDREN` | 菜单存在子节点，无法删除 |
 | 400 | `VALIDATION_ERROR` | 请求参数校验失败 |
 | 500 | `INTERNAL_ERROR` | 服务器内部错误 |

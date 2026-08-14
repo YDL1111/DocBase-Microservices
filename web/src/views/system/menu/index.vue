@@ -2,7 +2,7 @@
 /**
  * 系统管理 - 菜单管理页。
  *
- * 功能：树形展示菜单、查看详情、新建、编辑、启停、删除。
+ * 功能：树形展示菜单、查看详情、新建、编辑、启停、删除、管理归属。
  *
  * 数据契约：与 iam-service MenuController 对齐
  *  - GET  /api/system/menus/tree        全量菜单树（含 status/isSystem）
@@ -19,7 +19,8 @@
  *    （按钮 permission 必填且 routerName/path 为空、isButton=1；
  *     目录/菜单 routerName/path 必填且匹配正则、isButton=0）；
  *  - 提交体绝不携带 isSystem/deleted/审计字段；update 不带 status；
- *  - 不实现 owner 管理（Phase 5C2B 范围）。
+ *  - Owner 仅超级管理员可管理，且只调用 /owners；绝不复用角色菜单授权接口；
+ *  - Owner 为空表示“系统托管”，不授予任何角色菜单 permission。
  *
  * 异步隔离（与 role/index.vue 同模式）：
  *  - requestSeq 防迟到树响应覆盖新响应；
@@ -35,6 +36,8 @@ import { Plus, Edit, Delete, Refresh, View } from "@element-plus/icons-vue";
 import {
   listMenuTree,
   getMenu,
+  getMenuOwners,
+  replaceMenuOwners,
   createMenu,
   updateMenu,
   changeMenuStatus,
@@ -50,14 +53,18 @@ import {
   PATH_PATTERN,
   PERMISSION_PATTERN
 } from "@/api/system-menu";
+import { listAllRoles } from "@/api/role";
+import { useUserStoreHook } from "@/store/modules/user";
 import { message } from "@/utils/message";
 import {
   type SysMenu,
   type MenuNode,
   type CreateMenuRequest,
   type UpdateMenuRequest,
+  type SysRole,
   MenuType,
   MenuStatus,
+  RoleStatus,
   menuTypeLabel,
   menuTypeTagType,
   menuStatusLabel,
@@ -65,6 +72,12 @@ import {
 } from "@/api/types";
 
 defineOptions({ name: "SystemMenu" });
+
+const userStore = useUserStoreHook();
+/** 入口必须从普通管理员的 DOM 中移除；admin:all 仅作兼容性兜底。 */
+const canManageOwners = computed(
+  () => userStore.admin === true || userStore.hasPermission("admin:all")
+);
 
 /* ========================= 列表状态 ========================= */
 
@@ -203,6 +216,138 @@ const detailMenu = ref<SysMenu | null>(null);
 const detailLoading = ref(false);
 /** 详情请求序号：防止切换目标后旧详情响应覆盖新目标 */
 let detailRequestSeq = 0;
+
+/* ========================= 管理归属 ========================= */
+
+const ownerDialogVisible = ref(false);
+const ownerTargetMenu = ref<MenuNode | null>(null);
+const ownerRoles = ref<SysRole[]>([]);
+const ownerRoleIds = ref<number[]>([]);
+const ownerLoading = ref(false);
+const ownerReady = ref(false);
+const ownerSubmitting = ref(false);
+
+/** 每次打开/关闭都递增，隔离 Owner 和角色列表的迟到响应。 */
+let ownerRequestSeq = 0;
+let ownerDialogSession = 0;
+
+function clearOwnerDialogState() {
+  ownerRoleIds.value = [];
+  ownerRoles.value = [];
+  ownerReady.value = false;
+  ownerLoading.value = false;
+}
+
+function isCurrentOwnerDialog(session: number, menuId: number) {
+  return (
+    mountedRef.value &&
+    session === ownerDialogSession &&
+    ownerDialogVisible.value &&
+    ownerTargetMenu.value?.menuId === menuId
+  );
+}
+
+function closeOwnerDialog() {
+  if (ownerSubmitting.value) return;
+  ownerDialogVisible.value = false;
+  ownerTargetMenu.value = null;
+  ownerDialogSession++;
+  ownerRequestSeq++;
+  clearOwnerDialogState();
+}
+
+/**
+ * 两个数据源只有都成功时才让对话框进入可提交态。
+ * 切换目标先同步清空旧选择/角色，随后用 requestSeq + session + target 三重守卫写入。
+ */
+async function openOwnerDialog(node: MenuNode) {
+  if (ownerSubmitting.value) return;
+  ownerDialogSession++;
+  const session = ownerDialogSession;
+  const targetMenuId = node.menuId;
+  const seq = ++ownerRequestSeq;
+  ownerTargetMenu.value = node;
+  ownerDialogVisible.value = true;
+  clearOwnerDialogState();
+  ownerLoading.value = true;
+
+  try {
+    const [ownerIds, roles] = await Promise.all([
+      getMenuOwners(targetMenuId),
+      listAllRoles()
+    ]);
+    if (!mountedRef.value) return;
+    if (seq !== ownerRequestSeq || session !== ownerDialogSession) return;
+    if (ownerTargetMenu.value?.menuId !== targetMenuId) return;
+    ownerRoles.value = roles;
+    ownerRoleIds.value = ownerIds;
+    ownerReady.value = true;
+  } catch {
+    // 任一加载失败都不能把它解释为空 Owner，确定按钮保持禁用。
+    if (mountedRef.value && seq === ownerRequestSeq && session === ownerDialogSession) {
+      ownerReady.value = false;
+    }
+  } finally {
+    if (mountedRef.value && seq === ownerRequestSeq && session === ownerDialogSession) {
+      ownerLoading.value = false;
+    }
+  }
+}
+
+async function handleReplaceOwners() {
+  if (ownerSubmitting.value || !ownerReady.value || !ownerTargetMenu.value) return;
+  const session = ownerDialogSession;
+  const targetMenuId = ownerTargetMenu.value.menuId;
+  const roleIds = [...ownerRoleIds.value];
+  // 在二次确认前就上锁，防止连续点击产生多个确认框或多次 PUT。
+  ownerSubmitting.value = true;
+  try {
+    if (roleIds.length === 0) {
+      try {
+        await message.confirm(
+          "这将把菜单设为系统托管，普通角色将无法管理，是否继续？",
+          "确认系统托管"
+        );
+      } catch {
+        return;
+      }
+    }
+    // 全局确认框等待期间可能已路由离开；此时绝不再改变菜单 Owner。
+    if (!isCurrentOwnerDialog(session, targetMenuId)) return;
+    await replaceMenuOwners(targetMenuId, roleIds);
+    if (isCurrentOwnerDialog(session, targetMenuId)) {
+      message.success("管理归属已更新");
+      // 关闭会话会递增 session，必须先释放当前提交锁。
+      ownerSubmitting.value = false;
+      closeOwnerDialogAfterSubmit();
+    }
+  } catch (err) {
+    // 后端失败时保留已选角色及对话框；请求层负责常规业务错误提示。
+    if (
+      isCurrentOwnerDialog(session, targetMenuId) &&
+      (err instanceof RangeError || (err as Error)?.name === "RangeError")
+    ) {
+      message.error((err as Error).message || "参数校验失败");
+    }
+  } finally {
+    if (isCurrentOwnerDialog(session, targetMenuId)) {
+      ownerSubmitting.value = false;
+    }
+  }
+}
+
+/** 成功路径允许关闭，但不让 closeOwnerDialog 的提交中守卫阻断。 */
+function closeOwnerDialogAfterSubmit() {
+  ownerDialogVisible.value = false;
+  ownerTargetMenu.value = null;
+  ownerDialogSession++;
+  ownerRequestSeq++;
+  clearOwnerDialogState();
+}
+
+function ownerRoleDisabled(role: SysRole): boolean {
+  return role.status !== RoleStatus.ENABLED;
+}
 
 /* ========================= 树请求 ========================= */
 
@@ -552,6 +697,8 @@ onBeforeUnmount(() => {
   // 使任何飞行中的请求立即失效：其 seq 将不再等于当前值
   requestSeq++;
   detailRequestSeq++;
+  ownerRequestSeq++;
+  ownerDialogSession++;
 });
 </script>
 
@@ -619,7 +766,7 @@ onBeforeUnmount(() => {
           <span v-else-if="scope?.row">-</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="300" fixed="right">
+      <el-table-column label="操作" width="380" fixed="right">
         <template #default="scope">
           <template v-if="scope?.row">
             <el-button
@@ -658,6 +805,15 @@ onBeforeUnmount(() => {
               @click="handleDelete(scope.row)"
             >
               删除
+            </el-button>
+            <el-button
+              v-if="canManageOwners"
+              link
+              type="primary"
+              :disabled="ownerSubmitting"
+              @click="openOwnerDialog(scope.row)"
+            >
+              管理归属
             </el-button>
           </template>
         </template>
@@ -788,6 +944,68 @@ onBeforeUnmount(() => {
         <el-button @click="detailDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <!-- Owner 是资源管理边界，不等同于角色菜单权限授权。 -->
+    <el-dialog
+      v-model="ownerDialogVisible"
+      :title="ownerTargetMenu ? `管理归属 - ${ownerTargetMenu.menuName}` : '管理归属'"
+      width="640px"
+      destroy-on-close
+      :close-on-click-modal="false"
+      :close-on-press-escape="!ownerSubmitting"
+      :show-close="!ownerSubmitting"
+      @closed="closeOwnerDialog"
+    >
+      <div v-if="ownerLoading" class="owner-loading">
+        <el-skeleton :rows="5" animated />
+      </div>
+      <div v-else class="owner-content">
+        <el-alert
+          title="管理归属不授予菜单权限"
+          description="此处只决定哪些角色可以管理该菜单，不会修改角色的菜单 permission 或菜单授权。"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+        <el-alert
+          v-if="ownerReady && ownerRoleIds.length === 0"
+          class="system-managed-notice"
+          title="系统托管，仅超级管理员可管理"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+        <el-checkbox-group
+          v-model="ownerRoleIds"
+          class="owner-role-list"
+          :disabled="!ownerReady || ownerSubmitting"
+        >
+          <div v-for="role in ownerRoles" :key="role.roleId" class="owner-role-row">
+            <el-checkbox :label="role.roleId" :disabled="ownerRoleDisabled(role)">
+              <span class="owner-role-name">{{ role.roleName }}</span>
+              <span class="owner-role-key">{{ role.roleKey }}</span>
+            </el-checkbox>
+            <div class="owner-role-meta">
+              <el-tag :type="role.status === RoleStatus.ENABLED ? 'success' : 'info'" size="small">
+                {{ role.status === RoleStatus.ENABLED ? "启用" : "停用" }}
+              </el-tag>
+              <el-tag v-if="role.isSystem === 1" type="warning" size="small">系统保留</el-tag>
+            </div>
+          </div>
+        </el-checkbox-group>
+      </div>
+      <template #footer>
+        <el-button :disabled="ownerSubmitting" @click="closeOwnerDialog">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="ownerSubmitting"
+          :disabled="!ownerReady || ownerLoading"
+          @click="handleReplaceOwners"
+        >
+          确定
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -832,5 +1050,45 @@ onBeforeUnmount(() => {
     color: #909399;
     white-space: nowrap;
   }
+}
+
+.owner-loading {
+  padding: 16px;
+}
+
+.owner-content {
+  display: grid;
+  gap: 12px;
+}
+
+.owner-role-list {
+  display: grid;
+  gap: 8px;
+}
+
+.owner-role-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+}
+
+.owner-role-name {
+  margin-right: 8px;
+}
+
+.owner-role-key {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.owner-role-meta {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
 }
 </style>

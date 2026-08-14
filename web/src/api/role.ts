@@ -12,7 +12,7 @@
  *  - 菜单授权使用"全量菜单树"(/api/system/menus/tree)，不使用调用者可见菜单，
  *    避免静默覆盖调用者不可见的既有授权；后端负责权限子集校验。
  */
-import { http } from "@/utils/request";
+import { http, type RequestConfig } from "@/utils/request";
 import type {
   PageResult,
   SysRole,
@@ -117,16 +117,20 @@ export function updateRole(roleId: number, data: UpdateRoleRequest): Promise<voi
 }
 
 /** 删除角色 */
-export function deleteRole(roleId: number): Promise<void> {
+export function deleteRole(roleId: number, config?: RequestConfig): Promise<void> {
   positiveSafeInteger(roleId, "roleId");
-  return http.delete<void>(`/api/system/roles/${roleId}`);
+  return config
+    ? http.delete<void>(`/api/system/roles/${roleId}`, config)
+    : http.delete<void>(`/api/system/roles/${roleId}`);
 }
 
 /** 启停角色（status: 0=停用，1=启用） */
-export function changeRoleStatus(roleId: number, status: number): Promise<void> {
+export function changeRoleStatus(roleId: number, status: number, config?: RequestConfig): Promise<void> {
   positiveSafeInteger(roleId, "roleId");
   validStatus(status);
-  return http.put<void>(`/api/system/roles/${roleId}/status`, { status });
+  return config
+    ? http.put<void>(`/api/system/roles/${roleId}/status`, { status }, config)
+    : http.put<void>(`/api/system/roles/${roleId}/status`, { status });
 }
 
 /** 获取角色已分配的菜单 ID 列表 */

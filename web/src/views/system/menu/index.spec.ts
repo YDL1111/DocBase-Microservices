@@ -5,6 +5,10 @@ import { h, inject, nextTick, provide, type Slots, type VNode } from "vue";
 const {
   listMenuTree,
   getMenu,
+  getMenuOwners,
+  replaceMenuOwners,
+  listAllRoles,
+  assignRoleMenus,
   createMenu,
   updateMenu,
   changeMenuStatus,
@@ -14,6 +18,10 @@ const {
 } = vi.hoisted(() => ({
   listMenuTree: vi.fn(),
   getMenu: vi.fn(),
+  getMenuOwners: vi.fn(),
+  replaceMenuOwners: vi.fn(),
+  listAllRoles: vi.fn(),
+  assignRoleMenus: vi.fn(),
   createMenu: vi.fn(),
   updateMenu: vi.fn(),
   changeMenuStatus: vi.fn(),
@@ -31,6 +39,8 @@ const {
 vi.mock("@/api/system-menu", () => ({
   listMenuTree: (...args: unknown[]) => listMenuTree(...args),
   getMenu: (...args: unknown[]) => getMenu(...args),
+  getMenuOwners: (...args: unknown[]) => getMenuOwners(...args),
+  replaceMenuOwners: (...args: unknown[]) => replaceMenuOwners(...args),
   createMenu: (...args: unknown[]) => createMenu(...args),
   updateMenu: (...args: unknown[]) => updateMenu(...args),
   changeMenuStatus: (...args: unknown[]) => changeMenuStatus(...args),
@@ -45,6 +55,10 @@ vi.mock("@/api/system-menu", () => ({
   ROUTER_NAME_PATTERN: /^[A-Za-z][A-Za-z0-9_-]{0,127}$/,
   PATH_PATTERN: /^(\/[A-Za-z0-9_-]+)+$/,
   PERMISSION_PATTERN: /^[a-z0-9:._-]{1,128}$/
+}));
+vi.mock("@/api/role", () => ({
+  listAllRoles: (...args: unknown[]) => listAllRoles(...args),
+  assignRoleMenus: (...args: unknown[]) => assignRoleMenus(...args)
 }));
 vi.mock("@/utils/message", () => ({ message: messages }));
 
@@ -68,8 +82,10 @@ vi.mock("element-plus", async (importOriginal) => {
 /** 权限开关：grantAll=true 全部放行；否则按 permissionSet 精确判定 */
 let grantAll = true;
 let permissionSet = new Set<string>();
+let admin = true;
 vi.mock("@/store/modules/user", () => ({
   useUserStoreHook: () => ({
+    admin,
     hasPermission: (codes: string | string[]) => {
       if (grantAll) return true;
       const arr = Array.isArray(codes) ? codes : [codes];
@@ -287,6 +303,41 @@ const ElSwitch = {
   template: '<div class="el-switch" />'
 };
 
+const CHECKBOX_GROUP_KEY = "ownerCheckboxGroupTest";
+const ElCheckboxGroup = {
+  name: "ElCheckboxGroup",
+  props: { modelValue: { type: Array, default: () => [] }, disabled: { type: Boolean, default: false } },
+  emits: ["update:modelValue"],
+  setup(props: Record<string, any>, { slots, emit }: { slots: Slots; emit: (e: string, v: unknown) => void }) {
+    provide(CHECKBOX_GROUP_KEY as any, {
+      checked: () => props.modelValue as number[],
+      disabled: () => !!props.disabled,
+      change: (value: number, checked: boolean) => {
+        const next = new Set<number>(props.modelValue as number[]);
+        if (checked) next.add(value); else next.delete(value);
+        emit("update:modelValue", [...next]);
+      }
+    });
+    return () => h("div", { class: "el-checkbox-group" }, slots.default?.());
+  }
+};
+const ElCheckbox = {
+  name: "ElCheckbox",
+  props: { label: { type: Number, required: true }, disabled: { type: Boolean, default: false } },
+  setup(props: Record<string, any>, { slots }: { slots: Slots }) {
+    const group = inject<{ checked: () => number[]; disabled: () => boolean; change: (value: number, checked: boolean) => void }>(CHECKBOX_GROUP_KEY as any);
+    return () => h("label", { class: "el-checkbox" }, [
+      h("input", {
+        type: "checkbox",
+        disabled: !!props.disabled || group?.disabled(),
+        checked: group?.checked().includes(props.label as number),
+        onChange: (event: Event) => group?.change(props.label as number, (event.target as HTMLInputElement).checked)
+      }),
+      slots.default?.()
+    ]);
+  }
+};
+
 function mountList(options: Record<string, unknown> = {}) {
   // 注意：options.global 必须合并进 global，而不能用 `...options` 直接覆盖
   // （否则 plugins/stubs 丢失，真实 el-table 在 happy-dom 下不渲染行）。
@@ -305,7 +356,9 @@ function mountList(options: Record<string, unknown> = {}) {
         ElInputNumber,
         ElRadioGroup,
         ElRadio,
-        ElSwitch
+        ElSwitch,
+        ElCheckboxGroup,
+        ElCheckbox
       },
       ...userGlobal
     }
@@ -428,6 +481,14 @@ function treeData() {
   ];
 }
 
+function roleData() {
+  return [
+    { roleId: 11, roleName: "运营管理员", roleKey: "ops_admin", roleSort: 1, dataScope: 1, status: 1, isSystem: 0, remark: "", createTime: "", updateTime: "" },
+    { roleId: 12, roleName: "停用角色", roleKey: "disabled_role", roleSort: 2, dataScope: 1, status: 0, isSystem: 0, remark: "", createTime: "", updateTime: "" },
+    { roleId: 13, roleName: "系统管理员", roleKey: "system_admin", roleSort: 3, dataScope: 1, status: 1, isSystem: 1, remark: "", createTime: "", updateTime: "" }
+  ];
+}
+
 /** 在表单对话框内按 label 定位 el-form-item 并设置 input 值 */
 async function setFormField(wrapper: ReturnType<typeof mount>, label: string, value: string) {
   const items = wrapper.findAll(".el-form-item");
@@ -454,13 +515,32 @@ async function openEditDialog(wrapper: ReturnType<typeof mount>, rowMenuName: st
   await flush();
 }
 
+async function openOwnerDialogFor(wrapper: ReturnType<typeof mount>, rowMenuName: string) {
+  const row = wrapper.findAll(".el-table__row").find(r => r.text().includes(rowMenuName));
+  const button = row!.findAll("button").find(b => b.text().includes("管理归属"));
+  await button!.trigger("click");
+  await flush();
+  await flush();
+}
+
+function ownerDialog(wrapper: ReturnType<typeof mount>) {
+  const dialog = wrapper
+    .findAllComponents({ name: "ElDialog" })
+    .find(d => String(d.props("title")).includes("管理归属"));
+  if (!dialog) throw new Error("owner dialog not found");
+  return dialog;
+}
+
 describe("system menu manage page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     confirmMock.mockReset().mockResolvedValue(undefined); // 默认确认通过
     grantAll = true;
     permissionSet = new Set();
+    admin = true;
     listMenuTree.mockResolvedValue(treeData());
+    getMenuOwners.mockResolvedValue([11]);
+    listAllRoles.mockResolvedValue(roleData());
     // 编辑对话框打开时 GET /{menuId} 返回完整详情（默认按树节点构造，含 remark）
     getMenu.mockImplementation((menuId: number) => Promise.resolve(menuDetail(menuId)));
   });
@@ -1154,6 +1234,197 @@ describe("system menu manage page", () => {
     expect(changeMenuStatus).toHaveBeenCalledWith(3, 0);
     // 刷新树
     expect(listMenuTree.mock.calls.length).toBe(before + 1);
+  });
+
+  /* ---------------- Owner 管理（真实挂载组件） ---------------- */
+
+  it("超级管理员可见管理归属，普通管理员从 DOM 中移除入口", async () => {
+    const superWrapper = mountList();
+    await flush();
+    expect(superWrapper.findAll("button").some(b => b.text().includes("管理归属"))).toBe(true);
+
+    admin = false;
+    grantAll = false;
+    permissionSet = new Set(["system:menu:list"]);
+    const ordinaryWrapper = mountList();
+    await flush();
+    expect(ordinaryWrapper.findAll("button").some(b => b.text().includes("管理归属"))).toBe(false);
+  });
+
+  it("Owner 与角色列表均成功后才就绪，回显当前 Owner 且停用角色不可选择", async () => {
+    const wrapper = mountList();
+    await flush();
+    await openOwnerDialogFor(wrapper, "菜单管理");
+
+    expect(getMenuOwners).toHaveBeenCalledWith(2);
+    expect(listAllRoles).toHaveBeenCalledTimes(1);
+    const dialog = ownerDialog(wrapper);
+    const checkboxes = dialog.findAll('input[type="checkbox"]');
+    expect(checkboxes).toHaveLength(3);
+    expect((checkboxes[0].element as HTMLInputElement).checked).toBe(true);
+    expect((checkboxes[1].element as HTMLInputElement).disabled).toBe(true);
+    expect(dialog.text()).toContain("管理归属不授予菜单权限");
+  });
+
+  it("Owner 任一加载失败时保持不可提交，绝不把失败解释为空 Owner", async () => {
+    getMenuOwners.mockRejectedValueOnce(new Error("network"));
+    const wrapper = mountList();
+    await flush();
+    await openOwnerDialogFor(wrapper, "菜单管理");
+
+    const dialog = ownerDialog(wrapper);
+    const confirmButton = dialog.findAll("button").find(b => b.text().includes("确定"));
+    expect((confirmButton!.element as HTMLButtonElement).disabled).toBe(true);
+    await confirmButton!.trigger("click").catch(() => {});
+    expect(replaceMenuOwners).not.toHaveBeenCalled();
+  });
+
+  it("Owner A 的迟到响应不会覆盖已切换的 B，切换 B 时立即清空 A 的选择", async () => {
+    let resolveA!: (value: number[]) => void;
+    let resolveB!: (value: number[]) => void;
+    getMenuOwners
+      .mockReset()
+      .mockImplementationOnce(() => new Promise(resolve => { resolveA = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveB = resolve; }));
+
+    const wrapper = mountList();
+    await flush();
+    const rowA = wrapper.findAll(".el-table__row").find(r => r.text().includes("菜单管理"));
+    await rowA!.findAll("button").find(b => b.text().includes("管理归属"))!.trigger("click");
+    await flush();
+    const rowB = wrapper.findAll(".el-table__row").find(r => r.text().includes("用户管理"));
+    await rowB!.findAll("button").find(b => b.text().includes("管理归属"))!.trigger("click");
+    await flush();
+    expect(ownerDialog(wrapper).findAll(".owner-role-row")).toHaveLength(0);
+
+    resolveB([13]);
+    await flush();
+    await flush();
+    let checks = ownerDialog(wrapper).findAll('input[type="checkbox"]');
+    expect((checks[2].element as HTMLInputElement).checked).toBe(true);
+    resolveA([11]);
+    await flush();
+    checks = ownerDialog(wrapper).findAll('input[type="checkbox"]');
+    expect((checks[2].element as HTMLInputElement).checked).toBe(true);
+    expect((checks[0].element as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("非空 Owner 全量替换仅调用 Owner API，不调用角色菜单授权", async () => {
+    replaceMenuOwners.mockResolvedValue(undefined);
+    const wrapper = mountList();
+    await flush();
+    await openOwnerDialogFor(wrapper, "菜单管理");
+    const dialog = ownerDialog(wrapper);
+    const checks = dialog.findAll('input[type="checkbox"]');
+    await checks[2].setValue(true);
+    await flush();
+    await dialog.findAll("button").find(b => b.text().includes("确定"))!.trigger("click");
+    await flush();
+
+    expect(replaceMenuOwners).toHaveBeenCalledWith(2, [11, 13]);
+    expect(assignRoleMenus).not.toHaveBeenCalled();
+  });
+
+  it("Owner 保存成功后可重新打开另一菜单的归属对话框", async () => {
+    replaceMenuOwners.mockResolvedValue(undefined);
+    const wrapper = mountList();
+    await flush();
+    await openOwnerDialogFor(wrapper, "菜单管理");
+    const dialog = ownerDialog(wrapper);
+    await dialog.findAll("button").find(b => b.text().includes("确定"))!.trigger("click");
+    await flush();
+
+    const rowB = wrapper.findAll(".el-table__row").find(r => r.text().includes("用户管理"));
+    await rowB!.findAll("button").find(b => b.text().includes("管理归属"))!.trigger("click");
+    await flush();
+
+    expect(getMenuOwners).toHaveBeenNthCalledWith(1, 2);
+    expect(getMenuOwners).toHaveBeenNthCalledWith(2, 3);
+    expect(ownerDialog(wrapper).props("modelValue")).toBe(true);
+  });
+
+  it("空 Owner 显示系统托管说明，取消二次确认不调用 API", async () => {
+    confirmMock.mockRejectedValueOnce(new Error("cancel"));
+    const wrapper = mountList();
+    await flush();
+    await openOwnerDialogFor(wrapper, "菜单管理");
+    const dialog = ownerDialog(wrapper);
+    await dialog.find('input[type="checkbox"]').setValue(false);
+    await flush();
+    expect(dialog.text()).toContain("系统托管，仅超级管理员可管理");
+    await dialog.findAll("button").find(b => b.text().includes("确定"))!.trigger("click");
+    await flush();
+    expect(confirmMock).toHaveBeenCalledWith(
+      "这将把菜单设为系统托管，普通角色将无法管理，是否继续？",
+      "确认系统托管"
+    );
+    expect(replaceMenuOwners).not.toHaveBeenCalled();
+  });
+
+  it("空 Owner 确认与重复点击只发一次请求，提交期间不能切换目标", async () => {
+    let resolveReplace!: () => void;
+    replaceMenuOwners.mockImplementationOnce(() => new Promise<void>(resolve => { resolveReplace = resolve; }));
+    const wrapper = mountList();
+    await flush();
+    await openOwnerDialogFor(wrapper, "菜单管理");
+    const dialog = ownerDialog(wrapper);
+    await dialog.find('input[type="checkbox"]').setValue(false);
+    const confirmButton = dialog.findAll("button").find(b => b.text().includes("确定"))!;
+    await confirmButton.trigger("click");
+    await confirmButton.trigger("click").catch(() => {});
+    await flush();
+    expect(replaceMenuOwners).toHaveBeenCalledTimes(1);
+    expect(replaceMenuOwners).toHaveBeenCalledWith(2, []);
+
+    const rowB = wrapper.findAll(".el-table__row").find(r => r.text().includes("用户管理"));
+    await rowB!.findAll("button").find(b => b.text().includes("管理归属"))!.trigger("click");
+    expect(getMenuOwners).toHaveBeenCalledTimes(1);
+    resolveReplace();
+    await flush();
+  });
+
+  it("空 Owner 确认等待期间卸载，确认返回后不调用替换 API", async () => {
+    let resolveConfirm!: () => void;
+    confirmMock.mockImplementationOnce(() => new Promise<void>(resolve => { resolveConfirm = resolve; }));
+    const wrapper = mountList();
+    await flush();
+    await openOwnerDialogFor(wrapper, "菜单管理");
+    const dialog = ownerDialog(wrapper);
+    await dialog.find('input[type="checkbox"]').setValue(false);
+
+    await dialog.findAll("button").find(b => b.text().includes("确定"))!.trigger("click");
+    await flush();
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    expect(replaceMenuOwners).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+    resolveConfirm();
+    await flush();
+    expect(replaceMenuOwners).not.toHaveBeenCalled();
+    expect(messages.success).not.toHaveBeenCalledWith("管理归属已更新");
+  });
+
+  it("Owner 提交失败后保留对话框和选择，卸载后迟到加载不写入", async () => {
+    replaceMenuOwners.mockRejectedValueOnce(new Error("server"));
+    const wrapper = mountList();
+    await flush();
+    await openOwnerDialogFor(wrapper, "菜单管理");
+    const dialog = ownerDialog(wrapper);
+    await dialog.findAll("button").find(b => b.text().includes("确定"))!.trigger("click");
+    await flush();
+    expect(dialog.props("modelValue")).toBe(true);
+    expect((dialog.find('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(true);
+
+    let resolveOwners!: (value: number[]) => void;
+    getMenuOwners.mockReset().mockImplementationOnce(() => new Promise(resolve => { resolveOwners = resolve; }));
+    const lateWrapper = mountList();
+    await flush();
+    const row = lateWrapper.findAll(".el-table__row").find(r => r.text().includes("菜单管理"));
+    await row!.findAll("button").find(b => b.text().includes("管理归属"))!.trigger("click");
+    lateWrapper.unmount();
+    resolveOwners([13]);
+    await flush();
+    expect(replaceMenuOwners).toHaveBeenCalledTimes(1);
   });
 });
 

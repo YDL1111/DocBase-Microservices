@@ -18,6 +18,7 @@
  *  - 不允许客户端写入 isSystem、deleted、creatorId 等服务端字段。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { isAxiosError } from "axios";
 import type { FormInstance, FormRules } from "element-plus";
 import { Plus, Edit, Delete, Refresh, View, Key } from "@element-plus/icons-vue";
 import {
@@ -354,11 +355,11 @@ async function handleStatusChange(role: SysRole) {
     } catch {
       return; // 用户取消确认，由 finally 统一释放锁
     }
-    await changeRoleStatus(role.roleId, targetStatus);
+    await changeRoleStatus(role.roleId, targetStatus, { skipGlobalErrorMessage: true });
     message.success(`${actionText}成功`);
     fetchRoles("user");
-  } catch {
-    // 错误提示已由请求层处理
+  } catch (err) {
+    showRoleLifecycleError(err);
   } finally {
     operatingIds.value.delete(role.roleId);
   }
@@ -379,18 +380,32 @@ async function handleDelete(role: SysRole) {
     } catch {
       return; // 用户取消确认，由 finally 统一释放锁
     }
-    await deleteRole(role.roleId);
+    await deleteRole(role.roleId, { skipGlobalErrorMessage: true });
     message.success("删除成功");
     // 若删除的是当前页最后一条，回退到上一页
     if (roles.value.length === 1 && pagination.current > 1) {
       pagination.current -= 1;
     }
     fetchRoles("user");
-  } catch {
-    // 错误提示已由请求层处理（含系统保留角色等业务拒绝）
+  } catch (err) {
+    showRoleLifecycleError(err);
   } finally {
     operatingIds.value.delete(role.roleId);
   }
+}
+
+/** 最后 Owner 保护不泄露后端细节；其余错误保留通用、安全提示。 */
+function showRoleLifecycleError(err: unknown) {
+  const code = isAxiosError(err)
+    ? err.response?.data?.code
+    : err instanceof Error
+      ? err.message
+      : undefined;
+  if (code === "ROLE_LAST_MENU_OWNER") {
+    message.error("该角色仍是某些菜单的唯一有效管理员，请先转让菜单归属");
+    return;
+  }
+  message.error("操作失败，请稍后重试");
 }
 
 /* ========================= 菜单授权 ========================= */

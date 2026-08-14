@@ -3,6 +3,8 @@ import {
   listMenus,
   listMenuTree,
   getMenu,
+  getMenuOwners,
+  replaceMenuOwners,
   createMenu,
   updateMenu,
   changeMenuStatus,
@@ -44,6 +46,53 @@ describe("system-menu api", () => {
     (http.get as any).mockResolvedValue({ menuId: 7 });
     await getMenu(7);
     expect(http.get).toHaveBeenCalledWith("/api/system/menus/7");
+  });
+
+  it("getMenuOwners 应 GET /api/system/menus/{menuId}/owners", async () => {
+    (http.get as any).mockResolvedValue([1, 2]);
+    await getMenuOwners(7);
+    expect(http.get).toHaveBeenCalledWith("/api/system/menus/7/owners");
+  });
+
+  it("replaceMenuOwners 应 PUT 精确 Owner 路径和仅含 roleIds 的 body", async () => {
+    (http.put as any).mockResolvedValue(undefined);
+    await replaceMenuOwners(7, [2, 2, 1]);
+    expect(http.put).toHaveBeenCalledWith("/api/system/menus/7/owners", { roleIds: [2, 1] });
+    const body = (http.put as any).mock.calls[0][1];
+    expect(Object.keys(body)).toEqual(["roleIds"]);
+  });
+
+  it("Owner API 拒绝非法 menuId 且不发请求", () => {
+    expect(() => getMenuOwners(0)).toThrow(RangeError);
+    expect(() => replaceMenuOwners(Number.MAX_SAFE_INTEGER + 1, [])).toThrow(RangeError);
+    expect(http.get).not.toHaveBeenCalled();
+    expect(http.put).not.toHaveBeenCalled();
+  });
+
+  it("replaceMenuOwners 拒绝 null/undefined/非数组 roleIds 且不发请求", () => {
+    expect(() => replaceMenuOwners(1, null as any)).toThrow(TypeError);
+    expect(() => replaceMenuOwners(1, undefined as any)).toThrow(TypeError);
+    expect(() => replaceMenuOwners(1, "1" as any)).toThrow(TypeError);
+    expect(http.put).not.toHaveBeenCalled();
+  });
+
+  it("replaceMenuOwners 拒绝 null、负数、0 与非安全整数元素", () => {
+    for (const ids of [[null], [-1], [0], [1.5], [Number.MAX_SAFE_INTEGER + 1]]) {
+      expect(() => replaceMenuOwners(1, ids as any)).toThrow(RangeError);
+    }
+    expect(http.put).not.toHaveBeenCalled();
+  });
+
+  it("replaceMenuOwners 在去重后超过 100 个时拒绝", () => {
+    const ids = Array.from({ length: 101 }, (_, i) => i + 1);
+    expect(() => replaceMenuOwners(1, ids)).toThrow(RangeError);
+    expect(http.put).not.toHaveBeenCalled();
+  });
+
+  it("replaceMenuOwners 原样发送空数组，表示系统托管", async () => {
+    (http.put as any).mockResolvedValue(undefined);
+    await replaceMenuOwners(7, []);
+    expect(http.put).toHaveBeenCalledWith("/api/system/menus/7/owners", { roleIds: [] });
   });
 
   it("createMenu 应 POST /api/system/menus 且 body 精确匹配 CreateMenuRequest", async () => {

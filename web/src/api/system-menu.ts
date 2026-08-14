@@ -11,7 +11,7 @@
  *  - 提交请求体只含后端 DTO 字段，绝不携带 isSystem / deleted / creatorId /
  *    createTime / updateTime 等服务端字段；
  *  - update 不携带 status：启停只能调用 PUT /{menuId}/status 专用接口；
- *  - 不实现菜单 owner 管理（Phase 5C2B 范围，接口存在但本页不调用）。
+ *  - 菜单 owner 与角色菜单权限严格分离：owner 仅走 /owners，绝不写 sys_role_menu。
  */
 import { http } from "@/utils/request";
 import type {
@@ -30,6 +30,8 @@ export const PERMISSION_MAX = 128;
 export const META_INFO_MAX = 1024;
 export const REMARK_MAX = 512;
 export const SORT_NUM_MAX = 9999;
+/** 菜单有效 Owner 最多 100 个（与后端 MenuOwnerRolesRequest 一致） */
+export const MAX_MENU_OWNERS = 100;
 
 /** routerName 正则（与 MenuService MENU_ROUTER_INVALID 规则一致） */
 export const ROUTER_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,127}$/;
@@ -43,6 +45,31 @@ function positiveSafeInteger(value: number, field: string): void {
   if (!Number.isSafeInteger(value) || value < 1) {
     throw new RangeError(`${field} must be a positive safe integer`);
   }
+}
+
+/**
+ * 校验 Owner 全量替换的 roleIds。空数组是有效且有意义的“系统托管”，
+ * 因此调用方必须显式传入数组，不能将 null/undefined 静默转为空数组。
+ */
+function sanitizeOwnerRoleIds(roleIds: number[]): number[] {
+  if (!Array.isArray(roleIds)) {
+    throw new TypeError("roleIds must be an array");
+  }
+  const seen = new Set<number>();
+  const deduped: number[] = [];
+  for (const roleId of roleIds) {
+    if (!Number.isSafeInteger(roleId) || roleId < 1) {
+      throw new RangeError("roleIds must contain only positive safe integers");
+    }
+    if (!seen.has(roleId)) {
+      seen.add(roleId);
+      deduped.push(roleId);
+    }
+  }
+  if (deduped.length > MAX_MENU_OWNERS) {
+    throw new RangeError(`roleIds must not exceed ${MAX_MENU_OWNERS} entries`);
+  }
+  return deduped;
 }
 
 /** 校验 parentId：根节点为 0，其余为正安全整数 */
@@ -193,6 +220,23 @@ export function listMenuTree(): Promise<MenuNode[]> {
 export function getMenu(menuId: number): Promise<SysMenu> {
   positiveSafeInteger(menuId, "menuId");
   return http.get<SysMenu>(`/api/system/menus/${menuId}`);
+}
+
+/** 获取菜单当前有效 Owner 角色 ID，仅 admin:all 可调用。 */
+export function getMenuOwners(menuId: number): Promise<number[]> {
+  positiveSafeInteger(menuId, "menuId");
+  return http.get<number[]>(`/api/system/menus/${menuId}/owners`);
+}
+
+/**
+ * 全量替换菜单 Owner，仅 admin:all 可调用。
+ * 此接口只写 sys_menu_owner_role；[] 表示系统托管，不会授予任何菜单 permission。
+ */
+export function replaceMenuOwners(menuId: number, roleIds: number[]): Promise<void> {
+  positiveSafeInteger(menuId, "menuId");
+  return http.put<void>(`/api/system/menus/${menuId}/owners`, {
+    roleIds: sanitizeOwnerRoleIds(roleIds)
+  });
 }
 
 /** 创建菜单，返回新建的 menuId */

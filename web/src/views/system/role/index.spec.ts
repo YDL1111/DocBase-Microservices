@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { h, nextTick, reactive, watch, type Slots, type VNode } from "vue";
+import { AxiosError } from "axios";
 
 const {
   listRoles,
@@ -278,6 +279,23 @@ function sampleRole(id: number, status = 1, isSystem = 0) {
   };
 }
 
+/** 模拟 request.ts 在 HTTP 非 2xx 时原样抛出的 AxiosError。 */
+function axiosBusinessError(status: number, code: string) {
+  return new AxiosError(
+    `Request failed with status code ${status}`,
+    "ERR_BAD_RESPONSE",
+    {} as any,
+    undefined,
+    {
+      status,
+      statusText: "",
+      headers: {},
+      config: {} as any,
+      data: { success: false, code, message: "internal detail must not be shown" }
+    }
+  );
+}
+
 describe("system role manage page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -322,7 +340,7 @@ describe("system role manage page", () => {
     const deleteBtn = wrapper.findAll("button").find(b => b.text().includes("删除"));
     await deleteBtn!.trigger("click");
     await flush();
-    expect(deleteRole).toHaveBeenCalledWith(1);
+    expect(deleteRole).toHaveBeenCalledWith(1, { skipGlobalErrorMessage: true });
     expect(messages.success).toHaveBeenCalledWith("删除成功");
     // 初始加载 + 删除后刷新 = 2 次
     expect(listRoles).toHaveBeenCalledTimes(2);
@@ -351,7 +369,50 @@ describe("system role manage page", () => {
     expect(statusBtn).toBeTruthy();
     await statusBtn!.trigger("click");
     await flush();
-    expect(changeRoleStatus).toHaveBeenCalledWith(1, 0);
+    expect(changeRoleStatus).toHaveBeenCalledWith(1, 0, { skipGlobalErrorMessage: true });
+  });
+
+  it("ROLE_LAST_MENU_OWNER 停用失败时给出安全中文提示且保持页面状态", async () => {
+    changeRoleStatus.mockRejectedValueOnce(axiosBusinessError(400, "ROLE_LAST_MENU_OWNER"));
+    const wrapper = mountList();
+    await flush();
+    const statusBtn = wrapper.findAll("button").find(b => b.text().includes("停用"));
+    await statusBtn!.trigger("click");
+    await flush();
+    expect(messages.error).toHaveBeenCalledWith("该角色仍是某些菜单的唯一有效管理员，请先转让菜单归属");
+    expect(wrapper.findAll(".el-table__row")).toHaveLength(2);
+  });
+
+  it("ROLE_LAST_MENU_OWNER 删除失败时不自动清空 Owner", async () => {
+    deleteRole.mockRejectedValueOnce(axiosBusinessError(400, "ROLE_LAST_MENU_OWNER"));
+    const wrapper = mountList();
+    await flush();
+    const deleteBtn = wrapper.findAll("button").find(b => b.text().includes("删除"));
+    await deleteBtn!.trigger("click");
+    await flush();
+    expect(messages.error).toHaveBeenCalledWith("该角色仍是某些菜单的唯一有效管理员，请先转让菜单归属");
+    expect(assignRoleMenus).not.toHaveBeenCalled();
+  });
+
+  it("普通 HTTP 400/403/500 均只显示一次通用安全提示", async () => {
+    const failures: Array<[number, string]> = [
+      [400, "ROLE_NOT_FOUND"],
+      [403, "FORBIDDEN"],
+      [500, "INTERNAL_ERROR"]
+    ];
+    for (const [status, code] of failures) {
+      messages.error.mockClear();
+      changeRoleStatus.mockRejectedValueOnce(axiosBusinessError(status, code));
+      const wrapper = mountList();
+      await flush();
+      const statusBtn = wrapper.findAll("button").find(b => b.text().includes("停用"));
+      await statusBtn!.trigger("click");
+      await flush();
+      expect(messages.error).toHaveBeenCalledTimes(1);
+      expect(messages.error).toHaveBeenCalledWith("操作失败，请稍后重试");
+      expect(messages.error).not.toHaveBeenCalledWith("internal detail must not be shown");
+      wrapper.unmount();
+    }
   });
 
   it("异步乱序：后发先至的旧响应应被 requestSeq 丢弃", async () => {
