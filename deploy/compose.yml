@@ -92,7 +92,9 @@ services:
 
   rabbitmq-init:
     image: curlimages/curl:8.14.1
-    profiles: ["infrastructure"]
+    # One-shot bootstrap job. scripts/start-infra.ps1 runs it with
+    # `docker compose run --rm`, so it never remains as an exited container.
+    profiles: ["bootstrap"]
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -132,7 +134,8 @@ services:
 
   minio-init:
     image: minio/mc:RELEASE.2025-04-16T18-13-26Z
-    profiles: ["infrastructure"]
+    # One-shot bootstrap job; kept out of the daily runtime profile.
+    profiles: ["bootstrap"]
     depends_on:
       minio:
         condition: service_healthy
@@ -203,7 +206,8 @@ services:
 
   nacos-init:
     image: curlimages/curl:8.14.1
-    profiles: ["infrastructure"]
+    # One-shot bootstrap job; configuration is persisted by Nacos/MySQL.
+    profiles: ["bootstrap"]
     depends_on:
       nacos:
         condition: service_healthy
@@ -320,12 +324,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      rabbitmq-init:
-        condition: service_completed_successfully
       minio:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
       nacos:
         condition: service_healthy
     environment:
@@ -381,8 +381,6 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      rabbitmq-init:
-        condition: service_completed_successfully
       nacos:
         condition: service_healthy
     environment:

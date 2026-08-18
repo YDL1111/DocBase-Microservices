@@ -19,7 +19,17 @@ try {
         }
     }
 
+    # Always finish the idempotent transient bootstrap jobs before applications
+    # start. This also covers a first run against fresh named volumes.
+    & (Join-Path $PSScriptRoot "start-infra.ps1")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Infrastructure bootstrap failed with exit code $LASTEXITCODE"
+    }
+
     docker compose @composeFiles --profile infrastructure --profile application up -d --build --wait
+    if ($LASTEXITCODE -ne 0) {
+        throw "Application startup failed with exit code $LASTEXITCODE"
+    }
     docker compose @composeFiles --profile infrastructure --profile application ps
 } finally {
     Pop-Location

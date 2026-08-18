@@ -21,7 +21,7 @@
 services/       5 个独立 Spring Boot 应用
 libraries/      纯技术公共库与事件契约，不含共享业务模型
 rag-service/    Python FastAPI RAG 服务（文档解析、Embedding、Chroma、检索、SSE）
-web/            Vue 迁移前的 Nginx 占位
+web/            Vue 3 管理端，生产镜像由 Nginx 提供静态资源与 Gateway 反向代理
 deploy/         Compose、Nacos、Redis、RabbitMQ、MinIO、治理与观测配置
 database/       MySQL 多 Schema、独立账号和 Nacos 官方表结构初始化
 docs/           架构、ADR、API、事件、迁移和运行手册
@@ -32,7 +32,7 @@ scripts/        Windows PowerShell 启停与验收脚本
 
 | 组件 | 容器端口 | 宿主机端口 | 说明 |
 | --- | ---: | ---: | --- |
-| Web placeholder | 80 | 3000 | 唯一前端入口 |
+| Web | 80 | 3000 | Vue 管理端唯一入口 |
 | gateway-service | 8080 | 8080 | 唯一业务 API 入口 |
 | iam-service | 8081 | 不暴露 | IAM 合并服务 |
 | knowledge-service | 8082 | 不暴露 | 知识与对象元数据 |
@@ -75,11 +75,15 @@ DeepSeek 模型名称继续使用旧项目当前配置，Embedding 固定为 `BA
 
 ## 启动命令
 
-启动基础设施：
+启动基础设施并执行幂等初始化：
 
 ```powershell
 .\scripts\start-infra.ps1
 ```
+
+RabbitMQ、MinIO、Nacos 的初始化任务使用独立 `bootstrap` profile，并以
+`docker compose run --rm` 临时容器执行。任务成功后容器会自动删除，不会作为已退出的
+init 容器长期显示在 Docker Desktop 中。
 
 编译测试并启动全部应用：
 
@@ -94,12 +98,22 @@ docker compose -f deploy/compose.yml -f deploy/compose.dev.yml --profile governa
 docker compose -f deploy/compose.yml -f deploy/compose.dev.yml --profile observability up -d
 ```
 
-查看状态或停止（命名卷会保留）：
+查看状态或日常停止（容器、网络和命名卷均保留）：
 
 ```powershell
 .\scripts\status.ps1
 .\scripts\stop.ps1
 ```
+
+首次成功运行 `start-apps.ps1` 后，Docker Desktop 中的 `docbase-ms` 项目只包含长期运行
+服务。日常可直接点击项目级启动按钮，无需重新执行初始化任务。若需要删除容器和项目网络
+后重新创建，请显式运行（命名卷仍会保留）：
+
+```powershell
+.\scripts\down.ps1
+```
+
+不要把 `down.ps1` 作为日常停止命令；它会移除 Docker Desktop 中可一键重启的容器。
 
 一键执行编译、测试、Compose 校验、基础设施和 Gateway/IAM 冒烟：
 
@@ -135,9 +149,11 @@ JDK，避免误用 Java 17 构建。
 
 ### Nacos 首次启动较慢
 
-首次启动会等待 MySQL 初始化并创建管理员、Namespace 和配置，通常需要 1～2 分钟。使用
-`docker compose ... logs nacos nacos-init` 查看进度。若 `nacos-init` 因密码初始化失败，
-可清空仅属于本项目的 `docbase-ms_mysql-data` 卷后重试；不要操作旧项目卷。
+首次启动会等待 MySQL 初始化并创建管理员、Namespace 和配置，通常需要 1～2 分钟。
+使用 `docker compose ... logs nacos` 查看 Nacos 进度；临时 `nacos-init` 的输出会直接显示在
+`start-infra.ps1` 控制台中，并在结束后自动删除。若初始化因密码配置失败，应先核对 `.env`
+与已有数据卷中的账号状态；仅在确认无需保留本项目数据后，才单独重建对应
+`docbase-ms_mysql-data` 卷，不要操作旧项目卷。
 
 ### 修改初始化密码后服务无法连接
 
@@ -160,8 +176,8 @@ Gateway 使用宿主机 8080；Nacos 3 控制台映射到 18080，避免与 Gate
 - Gateway 的 4 条固定 `lb://` 路由
 - Nacos Discovery/Config 的 `spring.config.import` 接入和 6 个配置模板
 - 单 MySQL 多 Schema/账号、服务独立 Flyway、Redis ACL、RabbitMQ 拓扑、MinIO 受限用户
-- infrastructure/application/governance/observability Compose profiles
-- RAG、Web 占位与 PowerShell 运维脚本
+- infrastructure/application/bootstrap/governance/observability Compose profiles
+- RAG 服务、Vue 管理端与 PowerShell 运维脚本
 - Actuator、Prometheus 指标、统一响应/异常、Trace ID 日志
 
 当前安全骨架已替换为真实 IAM 能力：非对称 RS256 JWT 签发/验签、Redis 登录态

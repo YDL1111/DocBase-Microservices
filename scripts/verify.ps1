@@ -34,12 +34,22 @@ try {
     }
 
     Write-Host "== Compose specification =="
-    docker compose @composeFiles --profile infrastructure --profile application --profile governance --profile observability config --quiet
+    docker compose @composeFiles --profile infrastructure --profile bootstrap --profile application --profile governance --profile observability config --quiet
+    if ($LASTEXITCODE -ne 0) {
+        throw "Compose specification validation failed with exit code $LASTEXITCODE"
+    }
 
     if (-not $SkipContainerStart) {
         Write-Host "== Infrastructure and smoke services =="
         & (Join-Path $PSScriptRoot "start-infra.ps1")
+        if ($LASTEXITCODE -ne 0) {
+            throw "Infrastructure bootstrap failed with exit code $LASTEXITCODE"
+        }
+
         docker compose @composeFiles --profile infrastructure --profile application up -d --build --wait gateway-service iam-service
+        if ($LASTEXITCODE -ne 0) {
+            throw "Smoke service startup failed with exit code $LASTEXITCODE"
+        }
 
         $gatewayHealth = Invoke-RestMethod -Uri "http://localhost:8080/actuator/health" -TimeoutSec 10
         if ($gatewayHealth.status -ne "UP") {

@@ -10,8 +10,13 @@ $composeFiles = @(
 
 Push-Location $repoRoot
 try {
-    docker compose @composeFiles --profile "*" down --remove-orphans
-    Write-Host "Containers and networks stopped. Named volumes were preserved."
+    # Keep containers and networks so the docbase-ms project can be started
+    # directly from Docker Desktop on the next work session.
+    docker compose @composeFiles --profile "*" stop
+    if ($LASTEXITCODE -ne 0) {
+        throw "Container stop failed with exit code $LASTEXITCODE"
+    }
+    Write-Host "Containers stopped and preserved for Docker Desktop one-click startup."
 } finally {
     Pop-Location
 }
