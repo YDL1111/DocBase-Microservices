@@ -17,6 +17,29 @@ body,
   background: #f0f2f5;
 }
 
+:root {
+  --docbase-sidebar-width: 210px;
+  --docbase-sidebar-collapsed-width: 54px;
+  --docbase-header-height: 48px;
+  --el-color-primary: #409eff;
+}
+
+body {
+  color: #303133;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  color: #fff;
+  background: rgba(64, 158, 255, 0.82);
+}
+
 a {
   text-decoration: none;
   color: inherit;

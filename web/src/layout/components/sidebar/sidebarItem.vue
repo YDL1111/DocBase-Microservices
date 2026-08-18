@@ -1,5 +1,16 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import type { Component } from "vue";
+import {
+  Avatar,
+  ChatDotRound,
+  Collection,
+  Document,
+  Menu as MenuIcon,
+  Setting,
+  UploadFilled,
+  User
+} from "@element-plus/icons-vue";
 import type { MenuNode } from "@/api/types";
 
 interface Props {
@@ -29,6 +40,25 @@ function resolvePath(routePath: string): string {
     : `${props.basePath}/`;
   return `${base}${routePath}`.replace(/\/\//g, "/");
 }
+
+function resolveIcon(menu: MenuNode): Component {
+  const routeName = menu.routerName || "";
+  const path = menu.path || "";
+  if (routeName === "SystemManage") return Setting;
+  if (routeName === "SystemUser") return User;
+  if (routeName === "SystemRole") return Avatar;
+  if (routeName === "SystemMenu") return MenuIcon;
+  if (routeName.startsWith("Knowledge") || path.startsWith("/knowledge")) {
+    return Collection;
+  }
+  if (routeName.startsWith("Ingest") || path.startsWith("/ingest")) {
+    return UploadFilled;
+  }
+  if (routeName === "AiChat" || path.startsWith("/ai/chat")) {
+    return ChatDotRound;
+  }
+  return Document;
+}
 </script>
 
 <template>
@@ -37,12 +67,18 @@ function resolvePath(routePath: string): string {
     v-if="onlyOneChild && !onlyOneChild.children?.length"
     :index="resolvePath(onlyOneChild.path)"
   >
+    <el-icon class="menu-icon">
+      <component :is="resolveIcon(onlyOneChild)" />
+    </el-icon>
     <span>{{ onlyOneChild.menuName }}</span>
   </el-menu-item>
 
   <!-- 有多个子菜单：展示为 submenu -->
   <el-sub-menu v-else :index="resolvePath(item.path || item.menuName)">
     <template #title>
+      <el-icon class="menu-icon">
+        <component :is="resolveIcon(item)" />
+      </el-icon>
       <span>{{ item.menuName }}</span>
     </template>
     <SidebarItem
@@ -53,3 +89,11 @@ function resolvePath(routePath: string): string {
     />
   </el-sub-menu>
 </template>
+
+<style scoped>
+.menu-icon {
+  width: 20px;
+  margin-right: 9px;
+  font-size: 18px;
+}
+</style>

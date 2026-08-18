@@ -19,11 +19,14 @@ function detectDevice(): Device {
 
 export const useAppStore = defineStore({
   id: "docbase-app",
-  state: (): AppState => ({
-    device: detectDevice(),
-    sidebarCollapsed: false,
-    layoutMode: "vertical"
-  }),
+  state: (): AppState => {
+    const device = detectDevice();
+    return {
+      device,
+      sidebarCollapsed: device === "mobile",
+      layoutMode: "vertical"
+    };
+  },
   actions: {
     toggleSidebar() {
       this.sidebarCollapsed = !this.sidebarCollapsed;

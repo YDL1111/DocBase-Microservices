@@ -4,29 +4,46 @@ defineProps<{ collapse: boolean }>();
 
 <template>
   <div class="logo-container">
-    <span v-if="!collapse" class="logo-title">DocBase</span>
-    <span v-else class="logo-title-mini">DB</span>
+    <router-link class="logo-link" to="/home" title="DocBase">
+      <img class="logo-image" src="/logo.svg" alt="DocBase" />
+      <span v-show="!collapse" class="logo-title">DocBase</span>
+    </router-link>
   </div>
 </template>
 
 <style lang="scss" scoped>
 .logo-container {
-  height: 50px;
+  height: 48px;
   display: flex;
   align-items: center;
-  justify-content: center;
   background: #002140;
-  color: #fff;
-  font-weight: 600;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.logo-link {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.logo-image {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
 }
 
 .logo-title {
+  margin-left: 12px;
+  overflow: hidden;
+  color: #fff;
   font-size: 18px;
-  letter-spacing: 1px;
-}
-
-.logo-title-mini {
-  font-size: 20px;
+  font-weight: 600;
+  line-height: 32px;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
 }
 </style>
