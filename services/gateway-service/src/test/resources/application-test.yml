@@ -21,3 +21,4 @@ gateway:
       - /api/auth/ping
       - /api/auth/login
       - /api/auth/refresh
+      - /api/auth/setup

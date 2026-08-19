@@ -5,7 +5,9 @@ import {
   logoutApi,
   getMeApi,
   getPermissionsApi,
-  getMenusApi
+  getMenusApi,
+  getAdminSetupStatus,
+  setupFirstAdmin
 } from "./auth";
 
 // 模拟 request 层
@@ -70,5 +72,24 @@ describe("auth api", () => {
     (http.get as any).mockResolvedValue({});
     await getMenusApi();
     expect(http.get).toHaveBeenCalledWith("/api/auth/menus");
+  });
+  it("getAdminSetupStatus uses the anonymous setup endpoint without global errors", async () => {
+    (http.get as any).mockResolvedValue({ required: true, enabled: true });
+    await getAdminSetupStatus();
+    expect(http.get).toHaveBeenCalledWith("/api/auth/setup", {
+      skipGlobalErrorMessage: true
+    });
+  });
+
+  it("setupFirstAdmin only sends the explicit first-admin fields", async () => {
+    (http.post as any).mockResolvedValue(1);
+    const request = {
+      setupKey: "operator-setup-key-at-least-32-chars",
+      username: "admin",
+      nickname: "Administrator",
+      password: "StrongPass!123"
+    };
+    await setupFirstAdmin(request);
+    expect(http.post).toHaveBeenCalledWith("/api/auth/setup", request);
   });
 });

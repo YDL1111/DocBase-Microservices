@@ -91,6 +91,30 @@ init 容器长期显示在 Docker Desktop 中。
 .\scripts\start-apps.ps1
 ```
 
+### 首次创建管理员
+
+系统不提供开放注册，`admin` 也没有硬编码默认密码。首次部署前，在项目根目录 `.env` 中设置
+一个只由部署人员知道的初始化密钥：
+
+```dotenv
+IAM_ADMIN_SETUP_KEY=请替换为至少32位的高强度随机字符串
+```
+
+重新构建并启动后访问 `http://localhost:8080`。当数据库中不存在有效超级管理员时，旧版
+DocBase 登录页会自动显示“初始化管理员”，输入上面的密钥并自行设置管理员账号和密码。
+创建成功后该入口会由后端自动关闭，不能用于普通用户注册。完成后可清空 `.env` 中的
+`IAM_ADMIN_SETUP_KEY`，并在下次启动时重建 `iam-service`。
+
+如果数据库里已有管理员但忘记密码，请在 Docker 已启动的管理员 PowerShell 中运行：
+
+```powershell
+.\scripts\reset-admin-password.ps1 -Username admin
+```
+
+脚本通过安全输入读取新密码，不会把明文密码写入命令行、日志或仓库；它只重置已有超级
+管理员，并使该账号的旧 Token 失效。默认不会恢复已停用或已删除的账号；确需恢复时必须显式加
+`-Reactivate`。
+
 按需启用治理或观测：
 
 ```powershell

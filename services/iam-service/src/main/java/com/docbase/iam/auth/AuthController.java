@@ -1,6 +1,8 @@
 package com.docbase.iam.auth;
 
 import com.docbase.iam.auth.dto.AuthResult;
+import com.docbase.iam.auth.dto.AdminSetupRequest;
+import com.docbase.iam.auth.dto.AdminSetupStatus;
 import com.docbase.iam.auth.dto.LoginRequest;
 import com.docbase.iam.auth.dto.MenuNode;
 import com.docbase.iam.auth.dto.UserInfo;
@@ -18,9 +20,21 @@ import java.util.Set;
 public class AuthController {
 
     private final AuthService authService;
+    private final AdminSetupService adminSetupService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, AdminSetupService adminSetupService) {
         this.authService = authService;
+        this.adminSetupService = adminSetupService;
+    }
+
+    @GetMapping("/setup")
+    ApiResponse<AdminSetupStatus> setupStatus() {
+        return ApiResponse.success(adminSetupService.status());
+    }
+
+    @PostMapping("/setup")
+    ApiResponse<Long> setup(@Valid @RequestBody AdminSetupRequest request) {
+        return ApiResponse.success(adminSetupService.setup(request));
     }
 
     @PostMapping("/login")

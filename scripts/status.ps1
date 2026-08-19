@@ -4,6 +4,7 @@ param()
 $ErrorActionPreference = "Continue"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $composeFiles = @(
+    "--env-file", (Join-Path $repoRoot ".env"),
     "-f", (Join-Path $repoRoot "deploy/compose.yml"),
     "-f", (Join-Path $repoRoot "deploy/compose.dev.yml")
 )

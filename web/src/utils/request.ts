@@ -22,7 +22,12 @@ interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
 const { VITE_APP_BASE_API } = import.meta.env;
 const baseURL = VITE_APP_BASE_API || "";
 const SERVICE_UNAVAILABLE = 503;
-const WHITELIST = ["/api/auth/login", "/api/auth/refresh", "/api/auth/ping"];
+const WHITELIST = [
+  "/api/auth/login",
+  "/api/auth/refresh",
+  "/api/auth/ping",
+  "/api/auth/setup"
+];
 
 function isWhiteListed(url: string | undefined): boolean {
   return !!url && WHITELIST.some(item => url.includes(item));

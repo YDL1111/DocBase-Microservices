@@ -22,6 +22,20 @@ export interface LoginRequest {
   password: string;
 }
 
+/** 首次超级管理员初始化状态。required=false 后初始化入口永久关闭。 */
+export interface AdminSetupStatus {
+  required: boolean;
+  enabled: boolean;
+}
+
+/** 仅用于首次部署，不是开放注册接口。 */
+export interface AdminSetupRequest {
+  setupKey: string;
+  username: string;
+  nickname: string;
+  password: string;
+}
+
 /** 刷新请求 */
 export interface RefreshRequest {
   refreshToken: string;

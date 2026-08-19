@@ -22,6 +22,46 @@ Authorization: Bearer <accessToken>
 
 ## 认证接口
 
+### GET /api/auth/setup
+
+匿名。返回首次超级管理员初始化状态：
+
+```json
+{
+  "required": true,
+  "enabled": true
+}
+```
+
+- `required=true`：当前没有启用且未删除的超级管理员。
+- `enabled=true`：部署人员已配置 32–256 位的 `IAM_ADMIN_SETUP_KEY`，可以提交初始化请求。
+- 已存在有效超级管理员时 `required=false`，初始化入口关闭。
+
+### POST /api/auth/setup
+
+匿名但受部署密钥保护，仅创建首个超级管理员，不是普通用户注册接口。创建、数据库互斥锁
+和系统角色关联在同一事务中完成；多个 IAM 实例并发请求时最多一个成功。
+Gateway 通过 Redis 按来源共享限流：每秒补充 1 个令牌，最多突发 3 个请求。
+
+请求：
+
+```json
+{
+  "setupKey": "operator-only-key",
+  "username": "admin",
+  "nickname": "Administrator",
+  "password": "your-strong-password"
+}
+```
+
+错误：
+
+- `403 ADMIN_SETUP_KEY_INVALID` - 部署密钥错误
+- `400 ADMIN_SETUP_DISABLED` - 未配置部署密钥
+- `400 ADMIN_SETUP_CLOSED` - 已存在有效超级管理员
+- `400 USERNAME_EXISTS` - 用户名已存在（包括软删除用户）
+- `400 MIGRATION_MISSING` - 管理员互斥守卫行或系统管理员角色缺失
+
 ### POST /api/auth/login
 
 匿名。使用账号密码登录，返回访问令牌和刷新令牌。

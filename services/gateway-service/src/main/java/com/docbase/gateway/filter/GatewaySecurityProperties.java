@@ -19,7 +19,8 @@ public record GatewaySecurityProperties(
                     "/actuator/prometheus",
                     "/api/auth/ping",
                     "/api/auth/login",
-                    "/api/auth/refresh"
+                    "/api/auth/refresh",
+                    "/api/auth/setup"
             );
         }
     }

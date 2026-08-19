@@ -43,3 +43,6 @@ iam:
       - /api/auth/ping
       - /api/auth/login
       - /api/auth/refresh
+      - /api/auth/setup
+  admin-setup:
+    key: test-admin-setup-key-at-least-32-chars

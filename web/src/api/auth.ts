@@ -8,8 +8,22 @@ import type {
   RefreshRequest,
   AuthResult,
   UserInfo,
-  MenuNode
+  MenuNode,
+  AdminSetupRequest,
+  AdminSetupStatus
 } from "./types";
+
+/** 获取一次性管理员初始化状态；登录页自行处理探测失败，不弹全局错误。 */
+export function getAdminSetupStatus(): Promise<AdminSetupStatus> {
+  return http.get<AdminSetupStatus>("/api/auth/setup", {
+    skipGlobalErrorMessage: true
+  });
+}
+
+/** 创建首个超级管理员。存在有效管理员后，后端永久拒绝再次初始化。 */
+export function setupFirstAdmin(data: AdminSetupRequest): Promise<number> {
+  return http.post<number>("/api/auth/setup", data);
+}
 
 /**
  * 注意：http 层响应拦截器会剥离 ApiResponse 外壳，直接返回 data 字段，

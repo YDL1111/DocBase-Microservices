@@ -1,27 +1,25 @@
 package com.docbase.iam.user;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.docbase.iam.user.domain.SysUser;
-import com.docbase.iam.user.mapper.SysUserMapper;
+import com.docbase.common.core.BusinessException;
+import com.docbase.iam.auth.AdminSetupService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 /**
  * Optional first-admin initialization. Disabled by default; enabled via
  * iam.init-admin.enabled=true. Reads the initial credentials from environment
- * variables. Idempotent: does not overwrite an existing admin account.
+ * variables. The actual creation is delegated to {@link AdminSetupService},
+ * which uses the database mutex and assigns all active system roles.
  */
 @Component
 public class AdminInitializer implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(AdminInitializer.class);
 
-    private final SysUserMapper userMapper;
-    private final PasswordEncoder passwordEncoder;
+    private final AdminSetupService adminSetupService;
 
     @Value("${iam.init-admin.enabled:false}")
     private boolean enabled;
@@ -32,9 +30,8 @@ public class AdminInitializer implements CommandLineRunner {
     @Value("${iam.init-admin.password:}")
     private String password;
 
-    public AdminInitializer(SysUserMapper userMapper, PasswordEncoder passwordEncoder) {
-        this.userMapper = userMapper;
-        this.passwordEncoder = passwordEncoder;
+    public AdminInitializer(AdminSetupService adminSetupService) {
+        this.adminSetupService = adminSetupService;
     }
 
     @Override
@@ -46,19 +43,15 @@ public class AdminInitializer implements CommandLineRunner {
             log.warn("iam.init-admin.enabled=true but no password set; skipping admin initialization");
             return;
         }
-        long count = userMapper.selectCount(new QueryWrapper<SysUser>().eq("username", username));
-        if (count > 0) {
-            log.info("Admin user '{}' already exists; skipping initialization", username);
-            return;
+        try {
+            adminSetupService.initializeFromEnvironment(username, "Administrator", password);
+            log.info("Initial admin user '{}' created. Disable iam.init-admin.enabled after first boot.", username);
+        } catch (BusinessException exception) {
+            if ("ADMIN_SETUP_CLOSED".equals(exception.code())) {
+                log.info("An active administrator already exists; skipping initialization");
+                return;
+            }
+            throw exception;
         }
-        SysUser admin = new SysUser();
-        admin.setUsername(username);
-        admin.setNickname("Administrator");
-        admin.setPassword(passwordEncoder.encode(password));
-        admin.setStatus(1);
-        admin.setIsAdmin(1);
-        admin.setRemark("auto-initialized admin");
-        userMapper.insert(admin);
-        log.info("Initial admin user '{}' created. Disable iam.init-admin.enabled after first boot.", username);
     }
 }

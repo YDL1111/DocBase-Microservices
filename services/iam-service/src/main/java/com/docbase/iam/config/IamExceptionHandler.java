@@ -1,6 +1,7 @@
 package com.docbase.iam.config;
 
 import com.docbase.common.core.ApiResponse;
+import com.docbase.iam.auth.AdminSetupForbiddenException;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +20,12 @@ public class IamExceptionHandler {
     ResponseEntity<ApiResponse<Void>> handleBadCredentials(BadCredentialsException exception) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(ApiResponse.failure("BAD_CREDENTIALS", exception.getMessage()));
+    }
+
+    @ExceptionHandler(AdminSetupForbiddenException.class)
+    ResponseEntity<ApiResponse<Void>> handleAdminSetupForbidden(AdminSetupForbiddenException exception) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.failure("ADMIN_SETUP_KEY_INVALID", exception.getMessage()));
     }
 
     /**

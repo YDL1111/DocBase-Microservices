@@ -49,4 +49,8 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
             ORDER BY user_id""")
     List<Long> selectActiveAdminIds();
 
+    /** Includes logically deleted rows because the database unique key does too. */
+    @Select("SELECT COUNT(*) FROM sys_user WHERE username = #{username}")
+    long countAnyByUsername(@Param("username") String username);
+
 }

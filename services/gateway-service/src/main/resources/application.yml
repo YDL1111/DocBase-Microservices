@@ -26,6 +26,19 @@ spring:
             connect-timeout: 3000
             response-timeout: 30s
           routes:
+            - id: iam-admin-setup
+              order: -10
+              uri: lb://iam-service
+              predicates:
+                - Path=/api/auth/setup
+                - Method=POST
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@adminSetupKeyResolver}"
+                    redis-rate-limiter.replenishRate: 1
+                    redis-rate-limiter.burstCapacity: 3
+                    redis-rate-limiter.requestedTokens: 1
             - id: iam-service
               uri: lb://iam-service
               predicates:
@@ -78,6 +91,7 @@ gateway:
       - /api/auth/ping
       - /api/auth/login
       - /api/auth/refresh
+      - /api/auth/setup
 
 management:
   endpoints:

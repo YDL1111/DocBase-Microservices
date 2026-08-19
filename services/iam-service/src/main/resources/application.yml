@@ -59,6 +59,13 @@ iam:
       - /api/auth/ping
       - /api/auth/login
       - /api/auth/refresh
+      - /api/auth/setup
+  admin-setup:
+    key: ${IAM_ADMIN_SETUP_KEY:}
+  init-admin:
+    enabled: ${IAM_INIT_ADMIN_ENABLED:false}
+    username: ${IAM_INIT_ADMIN_USERNAME:admin}
+    password: ${IAM_INIT_ADMIN_PASSWORD:}
 
 mybatis-plus:
   configuration:

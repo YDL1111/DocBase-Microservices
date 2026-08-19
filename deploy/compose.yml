@@ -297,6 +297,12 @@ services:
       IAM_JWT_ISSUER: ${IAM_JWT_ISSUER:-docbase-iam}
       IAM_JWT_ACCESS_TTL: ${IAM_JWT_ACCESS_TTL:-30m}
       IAM_JWT_REFRESH_TTL: ${IAM_JWT_REFRESH_TTL:-7d}
+      # Interactive first-admin setup is disabled unless this operator key is configured.
+      IAM_ADMIN_SETUP_KEY: ${IAM_ADMIN_SETUP_KEY:-}
+      # Optional unattended first-admin creation. Disable after the first successful boot.
+      IAM_INIT_ADMIN_ENABLED: ${IAM_INIT_ADMIN_ENABLED:-false}
+      IAM_INIT_ADMIN_USERNAME: ${IAM_INIT_ADMIN_USERNAME:-admin}
+      IAM_INIT_ADMIN_PASSWORD: ${IAM_INIT_ADMIN_PASSWORD:-}
     expose:
       - "8081"
     networks:
@@ -536,7 +542,8 @@ services:
     networks:
       - edge-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null"]
+      # Alpine resolves localhost to ::1 first, while this Nginx site listens on IPv4.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 10
