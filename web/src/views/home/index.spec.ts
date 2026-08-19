@@ -16,6 +16,8 @@ vi.mock("@/store/modules/user", () => ({
   useUserStoreHook: () => userState
 }));
 
+let nextMenuId = 1;
+
 function menu(
   routerName: string,
   path: string,
@@ -29,7 +31,7 @@ function menu(
     routerName,
     path,
     permission: "",
-    menuType: isButton ? 3 : 1,
+    menuType: isButton ? 3 : children.length ? 2 : 1,
     isButton,
     sortNum: 1,
     metaInfo: "{}",
@@ -37,7 +39,22 @@ function menu(
   };
 }
 
-let nextMenuId = 1;
+function fullMenuTree(): MenuNode[] {
+  return [
+    menu("Knowledge", "/knowledge", [
+      menu("KnowledgeList", "/knowledge")
+    ]),
+    menu("IngestTaskDir", "/ingest", [
+      menu("IngestTask", "/ingest/tasks")
+    ]),
+    menu("AiChat", "/ai/chat", [menu("AiChatQuery", "", [], 1)]),
+    menu("SystemManage", "/system", [
+      menu("SystemUser", "/system/users"),
+      menu("SystemRole", "/system/roles"),
+      menu("SystemMenu", "/system/menus")
+    ])
+  ];
+}
 
 function mountHome() {
   return mount(HomeView, {
@@ -62,31 +79,49 @@ afterEach(() => {
 });
 
 describe("首页工作台权限入口", () => {
-  it("只展示当前 IAM 菜单树中已下发的真实业务路由", () => {
+  it("管理员菜单树展示全部六个真实功能入口", () => {
+    permissionState.menus = fullMenuTree();
+
+    const wrapper = mountHome();
+    const links = wrapper.findAll(".entry-card");
+
+    expect(links).toHaveLength(6);
+    expect(links.map(link => link.attributes("href"))).toEqual([
+      "/knowledge",
+      "/ingest/tasks",
+      "/ai/chat",
+      "/system/users",
+      "/system/roles",
+      "/system/menus"
+    ]);
+    expect(wrapper.text()).toContain("业务工作区");
+    expect(wrapper.text()).toContain("系统治理");
+    expect(wrapper.text()).toContain("6可用模块");
+  });
+
+  it("只展示 IAM 已下发页面，按钮权限不会变成入口", () => {
     permissionState.menus = [
       menu("Knowledge", "/knowledge", [
-        menu("KnowledgeList", "/knowledge")
+        menu("KnowledgeList", "/knowledge", [
+          menu("SystemUser", "", [], 1)
+        ])
       ]),
-      menu("AiChat", "/ai/chat"),
-      menu("IngestTask", "/ingest/tasks", [], 1)
+      menu("AiChat", "/ai/chat")
     ];
 
     const wrapper = mountHome();
     const links = wrapper.findAll(".entry-card");
 
-    expect(links).toHaveLength(2);
     expect(links.map(link => link.attributes("href"))).toEqual([
       "/knowledge",
       "/ai/chat"
     ]);
-    const cardText = links.map(link => link.text()).join(" ");
-    expect(cardText).toContain("文档资产管理");
-    expect(cardText).toContain("智能问答入口");
-    expect(cardText).not.toContain("知识入库任务");
+    expect(wrapper.text()).not.toContain("系统治理");
+    expect(wrapper.text()).not.toContain("用户管理");
   });
 
-  it("没有业务菜单时显示明确空状态，不渲染无权入口", () => {
-    permissionState.menus = [menu("SystemManage", "/system")];
+  it("没有页面菜单时显示明确空状态", () => {
+    permissionState.menus = [menu("OnlyAction", "", [], 1)];
 
     const wrapper = mountHome();
 

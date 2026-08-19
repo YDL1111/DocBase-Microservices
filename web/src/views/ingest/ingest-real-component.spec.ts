@@ -217,6 +217,7 @@ function createListRouter(): Router {
       { path: "/", component: { template: "<router-view />" } },
       {
         path: "/ingest/tasks/:taskId",
+        name: "IngestTaskDetail",
         component: { template: "<div />" }
       }
     ]
@@ -297,6 +298,11 @@ describe("P0-2: detail.vue 异步请求隔离", () => {
           component: { template: "<router-view />" },
           children: [
             {
+              path: "/home",
+              name: "Home",
+              component: { template: "<div>home</div>" }
+            },
+            {
               path: "/ingest/tasks/:taskId",
               name: "IngestTaskDetail",
               component: detailVue
@@ -374,6 +380,23 @@ describe("P0-2: detail.vue 异步请求隔离", () => {
     resolve2(makeTask(2, "SUCCEEDED"));
     await flushPromises();
     expect(wrapper.text()).toContain("#2");
+  });
+
+  it("离开任务详情时不得被旧组件重定向到 404", async () => {
+    getIngestTaskMock.mockResolvedValueOnce(makeTask(1, "PROCESSING"));
+    const router = detailRouter();
+    const wrapper = mount(detailVue, {
+      global: { plugins: [router, pinia, ElementPlus] }
+    });
+    await router.push("/ingest/tasks/1");
+    await flushPromises();
+
+    await router.push("/home");
+    await flushPromises();
+
+    expect(router.currentRoute.value.name).toBe("Home");
+    expect(router.currentRoute.value.path).toBe("/home");
+    wrapper.unmount();
   });
 });
 

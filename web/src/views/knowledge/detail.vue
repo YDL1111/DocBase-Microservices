@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 知识库详情页。
- * 包含四个标签页：概览、成员、目录、文档。
+ * 包含四个标签页：概览、成员、文档分类、文档。
  *
  * 关键设计：
  *  - knowledgeBaseId 仅来自路由参数（props），不信任外部输入；
@@ -61,6 +61,7 @@ async function loadBaseInfo() {
 }
 
 onMounted(() => {
+  if (route.name !== "KnowledgeDetail") return;
   // 进入页面时开始新上下文（递增序号 + 清空旧状态）
   if (knowledgeBaseId.value !== null) {
     knowledgeStore.beginBaseContext(knowledgeBaseId.value);
@@ -72,6 +73,9 @@ onMounted(() => {
 watch(
   () => knowledgeBaseId.value,
   (newId, oldId) => {
+    // Leaving the detail page clears route params before unmount. Only treat a
+    // missing ID as invalid while this detail route is still the active target.
+    if (route.name !== "KnowledgeDetail") return;
     if (newId !== null && newId !== oldId) {
       // 开始新上下文：递增序号 + 清空旧状态
       knowledgeStore.beginBaseContext(newId);
@@ -106,7 +110,7 @@ watch(
         <el-tab-pane label="成员" name="members">
           <DetailMembers :knowledge-base-id="knowledgeBaseId" />
         </el-tab-pane>
-        <el-tab-pane label="目录" name="folders">
+        <el-tab-pane label="文档分类" name="folders">
           <DetailFolders :knowledge-base-id="knowledgeBaseId" />
         </el-tab-pane>
         <el-tab-pane label="文档" name="documents">

@@ -2,7 +2,6 @@
 MinIO object storage service for document download.
 """
 import io
-import re
 from urllib.parse import urlparse
 
 import httpx
@@ -10,6 +9,7 @@ from minio import Minio
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.services.object_key import is_valid_object_key
 
 logger = get_logger(__name__)
 
@@ -103,13 +103,7 @@ class ObjectStorageService:
     @staticmethod
     def _is_valid_object_key(object_key: str) -> bool:
         """Validate object key to prevent path traversal."""
-        if not object_key:
-            return False
-        # Must not contain .. or start with /
-        if ".." in object_key or object_key.startswith("/"):
-            return False
-        # Must match expected pattern
-        return bool(re.match(r"^[a-zA-Z0-9/_.-]+$", object_key))
+        return is_valid_object_key(object_key)
 
 
 # Singleton instance

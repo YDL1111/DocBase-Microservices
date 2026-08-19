@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
 import MessageHistory from "./message-history.vue";
 
-const stubs = { ElEmpty: { props: ["description"], template: "<div><slot />{{ description }}</div>" }, ElSkeleton: { template: "<div />" }, ElTag: { template: "<span><slot /></span>" }, ElButton: { props: ["icon", "loading", "disabled", "size", "type", "ariaLabel"], template: "<button><slot /></button>" } };
+const stubs = { ElEmpty: { props: ["description"], template: "<div><slot />{{ description }}</div>" }, ElSkeleton: { template: "<div />" }, ElTag: { template: "<span><slot /></span>" }, ElIcon: { template: "<i><slot /></i>" }, ElButton: { props: ["icon", "loading", "disabled", "size", "type", "ariaLabel"], template: "<button><slot /></button>" } };
 const message = (role: number, status: number, sourcesJson?: string) => ({ id: role * 10 + status, sessionId: 1, userId: 1, role, status, content: `message-${role}`, sourcesJson, createdAt: "2026-01-01" });
 
 describe("chat message history", () => {

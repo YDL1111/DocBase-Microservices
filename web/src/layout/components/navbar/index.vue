@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
-import { Expand, Fold } from "@element-plus/icons-vue";
+import { ArrowDown, Expand, Fold } from "@element-plus/icons-vue";
 import { useAppStoreHook } from "@/store/modules/app";
 import { useUserStoreHook } from "@/store/modules/user";
 import { logoutApi } from "@/api/auth";
@@ -16,34 +16,28 @@ const user = useUserStoreHook();
 const { sidebarCollapsed } = storeToRefs(app);
 
 const displayName = computed(() => user.displayName);
-const breadcrumbs = computed(() => {
-  const matched = route.matched
+const pageTitle = computed(() => String(route.meta?.title || "首页"));
+const breadcrumbs = computed(() =>
+  route.matched
     .filter(item => item.meta?.title && !item.meta?.hidden)
-    .map(item => ({
-      title: String(item.meta.title),
-      path: item.path
-    }))
-    .filter(item => item.title !== "首页");
-
-  return [
-    { title: "首页", path: "/home" },
-    ...matched
-  ];
-});
+    .map(item => ({ title: String(item.meta.title), path: item.path }))
+    .filter((item, index, list) =>
+      index === list.findIndex(candidate => candidate.title === item.title)
+    )
+);
 
 function toggleSidebar() {
   app.toggleSidebar();
 }
 
-async function handleLogout() {
+async function handleCommand(command: string) {
+  if (command !== "logout") return;
   try {
     const { getRefreshToken } = await import("@/utils/auth");
     const refreshToken = getRefreshToken();
-    if (refreshToken) {
-      await logoutApi({ refreshToken });
-    }
+    if (refreshToken) await logoutApi({ refreshToken });
   } catch {
-    // 登出接口失败也要清理本地态
+    // Local authentication state must still be cleared if remote logout fails.
   } finally {
     user.clearUser();
     const { resetRouter } = await import("@/router");
@@ -55,7 +49,7 @@ async function handleLogout() {
 </script>
 
 <template>
-  <div class="navbar">
+  <header class="navbar">
     <div class="navbar-left">
       <button
         class="collapse-btn"
@@ -65,29 +59,34 @@ async function handleLogout() {
         @click="toggleSidebar"
       >
         <el-icon>
-          <Fold v-if="!sidebarCollapsed" />
-          <Expand v-else />
+          <Expand v-if="sidebarCollapsed" />
+          <Fold v-else />
         </el-icon>
       </button>
 
-      <el-breadcrumb class="breadcrumb" separator="/">
-        <el-breadcrumb-item
-          v-for="(item, index) in breadcrumbs"
-          :key="`${item.path}-${index}`"
-          :to="index < breadcrumbs.length - 1 ? item.path : undefined"
-        >
-          {{ item.title }}
-        </el-breadcrumb-item>
-      </el-breadcrumb>
+      <div class="page-identity">
+        <strong>{{ pageTitle }}</strong>
+        <el-breadcrumb v-if="breadcrumbs.length > 1" separator="/">
+          <el-breadcrumb-item
+            v-for="(item, index) in breadcrumbs"
+            :key="`${item.path}-${index}`"
+          >
+            {{ item.title }}
+          </el-breadcrumb-item>
+        </el-breadcrumb>
+      </div>
     </div>
+
     <div class="navbar-right">
-      <el-dropdown trigger="click" @command="handleLogout">
-        <span class="user-dropdown">
-          <el-avatar :size="26" :src="userAvatarUrl" class="user-avatar">
+      <span class="workspace-label">DocBase 工作区</span>
+      <el-dropdown trigger="click" @command="handleCommand">
+        <button class="user-dropdown" type="button">
+          <el-avatar :size="30" :src="userAvatarUrl" class="user-avatar">
             {{ displayName.charAt(0).toUpperCase() }}
           </el-avatar>
           <span class="user-name">{{ displayName }}</span>
-        </span>
+          <el-icon class="dropdown-arrow"><ArrowDown /></el-icon>
+        </button>
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item command="logout">退出登录</el-dropdown-item>
@@ -95,21 +94,21 @@ async function handleLogout() {
         </template>
       </el-dropdown>
     </div>
-  </div>
+  </header>
 </template>
 
 <style lang="scss" scoped>
 .navbar {
   position: relative;
   z-index: 998;
-  height: 48px;
+  height: var(--docbase-header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-right: 12px;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
-  flex: 0 0 48px;
+  padding-right: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--docbase-line);
+  flex: 0 0 var(--docbase-header-height);
 }
 
 .navbar-left,
@@ -123,57 +122,92 @@ async function handleLogout() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 100%;
   padding: 0;
-  color: #606266;
-  font-size: 20px;
+  color: #607287;
+  font-size: 19px;
   background: transparent;
   border: 0;
   cursor: pointer;
-  transition:
-    color 0.2s ease,
-    background-color 0.2s ease;
 }
 
 .collapse-btn:hover,
 .collapse-btn:focus-visible {
-  color: #409eff;
-  background: #f6f6f6;
+  color: var(--docbase-accent);
+  background: #edf4fa;
   outline: none;
 }
 
-.breadcrumb {
-  margin-left: 8px;
+.page-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.page-identity strong {
+  color: var(--docbase-ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.page-identity :deep(.el-breadcrumb__inner) {
+  color: #8795a5;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.workspace-label {
+  margin-right: 12px;
+  color: #718296;
+  font-size: 13px;
 }
 
 .user-dropdown {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 48px;
-  padding: 0 10px;
-  color: #303133;
+  height: 40px;
+  padding: 0 8px;
+  color: #24364a;
+  font: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
   cursor: pointer;
-  transition: background-color 0.2s ease;
 }
 
-.user-dropdown:hover {
-  background: #f6f6f6;
+.user-dropdown:hover,
+.user-dropdown:focus-visible {
+  background: #f0f4f7;
+  outline: none;
 }
 
 .user-name {
-  font-size: 14px;
+  max-width: 150px;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-arrow {
+  color: #91a0af;
+  font-size: 12px;
 }
 
 @media (max-width: 767px) {
-  .breadcrumb,
-  .user-name {
+  .workspace-label,
+  .user-name,
+  .dropdown-arrow,
+  .page-identity :deep(.el-breadcrumb) {
     display: none;
   }
 
   .navbar {
-    padding-right: 4px;
+    padding-right: 5px;
   }
 }
 </style>

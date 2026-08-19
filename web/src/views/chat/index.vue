@@ -46,6 +46,7 @@ function clearMessages(): void { messages.value = []; }
 function invalidateHistory(): void { ++messageSequence; }
 function selectedSession(): ChatSession | undefined { return sessions.value.find(item => item.id === selectedSessionId.value); }
 const canQuery = computed(() => userStore.hasPermission("ai:chat:query"));
+const activeSession = computed(() => selectedSession());
 
 const chatStream = useChatStream({
   messages,
@@ -296,6 +297,16 @@ onUnmounted(() => {
   <main v-auth="'ai:chat:list'" class="chat-page">
     <SessionList :sessions="sessions" :selected-session-id="selectedSessionId" :loading="sessionLoading" :deleting-session-id="deletingSessionId" :locked-session-id="chatStream.backgroundRecoverySessionId.value" :current="pagination.current" :size="pagination.size" :total="pagination.total" @create="openCreate" @select="selectSession" @delete="removeSession" @refresh="loadSessions(true)" @page-change="changePage" @size-change="changeSize" />
     <section class="chat-workspace">
+      <header class="chat-workspace__header">
+        <div>
+          <span class="chat-workspace__eyebrow">知识库智能助手</span>
+          <h1>{{ activeSession?.title?.trim() || "知识问答" }}</h1>
+        </div>
+        <span class="knowledge-status" :class="{ muted: !activeSession?.knowledgeBaseId }">
+          <i />
+          {{ activeSession?.knowledgeBaseId ? `知识库 ${activeSession.knowledgeBaseId}` : "未绑定知识库" }}
+        </span>
+      </header>
       <MessageHistory
         :messages="messages"
         :loading="messageLoading"
@@ -317,7 +328,96 @@ onUnmounted(() => {
 </template>
 
 <style scoped lang="scss">
-.chat-page { display: grid; grid-template-columns: 310px minmax(0, 1fr); height: calc(100vh - 100px); min-height: 520px; overflow: hidden; background: var(--el-bg-color); border-radius: 8px; }
-.chat-workspace { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
-@media (max-width: 760px) { .chat-page { grid-template-columns: 1fr; grid-template-rows: 260px minmax(0, 1fr); height: calc(100vh - 88px); }.session-list { border-right: 0; border-bottom: 1px solid var(--el-border-color-light); } }
+.chat-page {
+  height: calc(100vh - 106px);
+  min-height: 560px;
+  display: grid;
+  grid-template-columns: 276px minmax(0, 1fr);
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #dce7f0;
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(35, 72, 103, 0.07);
+}
+
+.chat-workspace {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: #f7fafe;
+}
+
+.chat-workspace__header {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 24px;
+  background: rgba(255, 255, 255, 0.94);
+  border-bottom: 1px solid #e2ebf2;
+}
+
+.chat-workspace__eyebrow {
+  display: block;
+  margin-bottom: 3px;
+  color: #66809a;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.chat-workspace__header h1 {
+  max-width: min(560px, 54vw);
+  margin: 0;
+  overflow: hidden;
+  color: #173956;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  color: #42647f;
+  font-size: 12px;
+  background: #eef6fb;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.knowledge-status i {
+  width: 7px;
+  height: 7px;
+  background: #2d9f78;
+  border-radius: 50%;
+}
+
+.knowledge-status.muted i {
+  background: #9aabba;
+}
+
+@media (max-width: 760px) {
+  .chat-page {
+    height: auto;
+    min-height: calc(100vh - 88px);
+    grid-template-columns: 1fr;
+    grid-template-rows: 230px minmax(520px, 1fr);
+  }
+
+  .chat-workspace__header {
+    min-height: 66px;
+    padding: 12px 16px;
+  }
+
+  .chat-workspace__header h1 {
+    max-width: 48vw;
+  }
+}
 </style>

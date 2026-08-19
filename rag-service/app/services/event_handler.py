@@ -10,6 +10,7 @@ from app.db.models import RagDocument, ConsumedEvent, RagOutbox
 from app.messaging.contracts import KnowledgeEvent
 from app.services.ingestion import ingestion_service
 from app.services.object_storage import object_storage
+from app.services.result_payload import build_result_payload
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,7 @@ class EventHandler:
 
             # Publish completion event
             self._publish_result(event, db, "rag.document.ingest.completed", True,
-                               chunk_count=result["chunk_count"])
+                               chunkCount=result["chunk_count"])
 
         except Exception as e:
             logger.error(f"Ingestion failed for doc {event.document_id}: {e}")
@@ -109,7 +110,7 @@ class EventHandler:
 
             # Publish failure event
             self._publish_result(event, db, "rag.document.ingest.failed", False,
-                               error_message=str(e)[:500])
+                               errorMessage=str(e)[:500])
 
     async def _handle_delete(self, event: KnowledgeEvent, db: SessionLocal):
         """Handle document deletion request."""
@@ -142,7 +143,7 @@ class EventHandler:
 
             # Publish failure event
             self._publish_result(event, db, "rag.document.delete.failed", False,
-                               error_message=str(e)[:500])
+                               errorMessage=str(e)[:500])
 
     def _record_consumed(self, event: KnowledgeEvent, db: SessionLocal,
                         result: str, error_message: str = None):
@@ -174,20 +175,8 @@ class EventHandler:
         outbox_event.document_id = event.document_id
 
         # Build payload
-        payload = {
-            "eventId": outbox_event.event_id,
-            "eventType": event_type,
-            "aggregateType": "ingest_task",
-            "aggregateId": event.aggregate_id,
-            "knowledgeBaseId": event.knowledge_base_id,
-            "documentId": event.document_id,
-            "versionId": event.version_id,
-            "status": "SUCCEEDED" if success else "FAILED",
-            "operatorId": event.operator_id,
-            "schemaVersion": 1,
-            "occurredAt": datetime.utcnow().isoformat(),
-        }
-        payload.update(kwargs)
+        payload = build_result_payload(event, event_type, success, **kwargs)
+        payload["eventId"] = outbox_event.event_id
 
         outbox_event.payload = json.dumps(payload)
         outbox_event.status = "PENDING"

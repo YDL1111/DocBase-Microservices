@@ -13,10 +13,11 @@ defineProps<{ collapse: boolean }>();
 
 <style lang="scss" scoped>
 .logo-container {
-  height: 48px;
+  height: var(--docbase-header-height);
   display: flex;
   align-items: center;
-  background: #002140;
+  background: #fff;
+  border-bottom: 1px solid #e2e8ef;
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -26,24 +27,24 @@ defineProps<{ collapse: boolean }>();
   align-items: center;
   width: 100%;
   height: 100%;
-  padding: 0 11px;
+  padding: 0 13px;
   white-space: nowrap;
 }
 
 .logo-image {
-  width: 32px;
-  height: 32px;
+  width: 31px;
+  height: 31px;
   flex: 0 0 auto;
 }
 
 .logo-title {
-  margin-left: 12px;
+  margin-left: 11px;
   overflow: hidden;
-  color: #fff;
+  color: #163a59;
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 32px;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   text-overflow: ellipsis;
 }
 </style>

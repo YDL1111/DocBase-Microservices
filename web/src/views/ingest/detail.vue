@@ -231,6 +231,7 @@ const displayLastError = computed(() => {
 // ========================= 生命周期 =========================
 
 onMounted(() => {
+  if (route.name !== "IngestTaskDetail") return;
   if (taskId.value === null) {
     router.replace("/error/404");
     return;
@@ -240,6 +241,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  ++requestSeq;
   stopPolling();
   document.removeEventListener("visibilitychange", handleVisibilityChange);
 });
@@ -256,6 +258,9 @@ watch(
 watch(
   () => taskId.value,
   (newId) => {
+    // Route state changes before this component is unmounted. Do not let the
+    // old detail page hijack a legitimate navigation to another menu.
+    if (route.name !== "IngestTaskDetail") return;
     if (newId === null) {
       router.replace("/error/404");
       return;

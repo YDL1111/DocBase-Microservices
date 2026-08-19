@@ -7,6 +7,10 @@ import { useAppStoreHook } from "@/store/modules/app";
 import { usePermissionStoreHook } from "@/store/modules/permission";
 import SidebarItem from "./sidebarItem.vue";
 import Logo from "./logo.vue";
+import {
+  buildSidebarNavigation,
+  menuContainsPath
+} from "./navigation";
 
 const route = useRoute();
 const router = useRouter();
@@ -15,7 +19,17 @@ const permission = usePermissionStoreHook();
 const { sidebarCollapsed } = storeToRefs(app);
 
 const activeMenu = computed(() => route.path);
-const menus = computed(() => permission.menus);
+const menus = computed(() => buildSidebarNavigation(permission.menus));
+const defaultOpeneds = computed(() =>
+  menus.value
+    .filter(
+      item =>
+        item.children?.length &&
+        (item.routerName === "SidebarKnowledgeGroup" ||
+          menuContainsPath(item, route.path))
+    )
+    .map(item => item.path)
+);
 
 function handleSelect(path: string) {
   router.push(path);
@@ -34,15 +48,12 @@ function toggleSidebar() {
         :default-active="activeMenu"
         :collapse="sidebarCollapsed"
         :collapse-transition="false"
-        background-color="#001529"
-        text-color="#bfcbd9"
-        active-text-color="#ffffff"
-        unique-opened
+        :default-openeds="defaultOpeneds"
         @select="handleSelect"
       >
         <SidebarItem
           v-for="item in menus"
-          :key="item.path"
+          :key="item.menuId"
           :item="item"
           :base-path="item.path"
         />
@@ -59,7 +70,7 @@ function toggleSidebar() {
         <Expand v-if="sidebarCollapsed" />
         <Fold v-else />
       </el-icon>
-      <span v-show="!sidebarCollapsed">收起菜单</span>
+      <span v-show="!sidebarCollapsed">收起导航</span>
     </button>
   </div>
 </template>
@@ -69,55 +80,102 @@ function toggleSidebar() {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  color: rgba(254, 254, 254, 0.68);
-  background: #001529;
-  box-shadow: 0 0 1px rgba(0, 0, 0, 0.65);
-}
-
-:deep(.el-menu) {
-  border-right: none;
+  color: #425a70;
+  background: #f7f9fc;
+  border-right: 0;
 }
 
 :deep(.el-scrollbar) {
   flex: 1;
 }
 
+:deep(.el-menu) {
+  padding: 12px 8px;
+  background: transparent;
+  border-right: 0;
+}
+
 :deep(.el-menu-item),
 :deep(.el-sub-menu__title) {
-  height: 50px;
-  line-height: 50px;
-  color: rgba(254, 254, 254, 0.68);
+  height: 44px;
+  margin: 1px 4px;
+  padding-right: 12px !important;
+  color: #425a70;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 44px;
   background: transparent !important;
+  border-radius: 5px;
   transition:
-    color 0.2s ease,
-    background-color 0.2s ease;
+    color 0.18s ease,
+    background-color 0.18s ease;
 }
 
 :deep(.el-menu-item:hover),
-:deep(.el-sub-menu__title:hover),
+:deep(.el-sub-menu__title:hover) {
+  color: #1f64c5 !important;
+  background: #edf3f8 !important;
+}
+
 :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
-  color: #fff !important;
+  color: #1f64c5 !important;
+  font-weight: 600;
+  background: transparent !important;
 }
 
 :deep(.el-menu-item.is-active) {
-  width: calc(100% - 16px);
-  height: 42px;
-  margin: 4px 8px;
-  color: #fff !important;
-  line-height: 42px;
-  background: #409eff !important;
-  border-radius: 3px;
+  position: relative;
+  color: #185fbd !important;
+  font-weight: 600;
+  background: #e8f1ff !important;
+  box-shadow: none;
+}
+
+:deep(.el-menu-item.is-active::before) {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  width: 3px;
+  height: 24px;
+  content: "";
+  background: #246bce;
+  border-radius: 0 2px 2px 0;
+}
+
+:deep(.el-sub-menu .el-menu-item) {
+  min-width: 0;
+  height: 40px;
+  margin: 1px 4px;
+  padding-left: 43px !important;
+  color: #566d82;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 40px;
+  background: transparent !important;
+}
+
+:deep(.el-sub-menu .el-menu-item:hover) {
+  color: #1f64c5 !important;
+  background: #edf3f8 !important;
+}
+
+:deep(.el-sub-menu .el-menu-item.is-active) {
+  color: #185fbd !important;
+  font-weight: 600;
+  background: #e8f1ff !important;
+}
+
+:deep(.el-sub-menu__icon-arrow) {
+  right: 14px;
+  color: #8da0b1;
+  font-size: 12px;
 }
 
 :deep(.el-menu--collapse .el-menu-item),
 :deep(.el-menu--collapse .el-sub-menu__title) {
   justify-content: center;
+  margin: 1px 0;
   padding: 0 !important;
-}
-
-:deep(.el-menu--collapse .el-menu-item.is-active) {
-  width: 46px;
-  margin: 4px;
 }
 
 :deep(.el-menu--collapse .menu-icon) {
@@ -130,25 +188,25 @@ function toggleSidebar() {
   justify-content: center;
   gap: 8px;
   width: 100%;
-  height: 44px;
-  flex: 0 0 44px;
+  height: 46px;
+  flex: 0 0 46px;
   padding: 0;
-  color: rgba(254, 254, 254, 0.68);
+  color: #687d91;
   font: inherit;
   font-size: 13px;
-  background: #001529;
+  background: #fff;
   border: 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid #e2e8ef;
   cursor: pointer;
   transition:
-    color 0.2s ease,
-    background-color 0.2s ease;
+    color 0.18s ease,
+    background-color 0.18s ease;
 }
 
 .sidebar-collapse:hover,
 .sidebar-collapse:focus-visible {
-  color: #fff;
-  background: #0b2945;
+  color: #1e5f91;
+  background: #edf3f8;
   outline: none;
 }
 </style>

@@ -6,32 +6,25 @@ import {
   ChatDotRound,
   Collection,
   Document,
+  HomeFilled,
   Menu as MenuIcon,
   Setting,
   UploadFilled,
   User
 } from "@element-plus/icons-vue";
-import type { MenuNode } from "@/api/types";
+import type { SidebarMenuNode } from "./navigation";
 
 interface Props {
-  item: MenuNode;
+  item: SidebarMenuNode;
   basePath?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), { basePath: "" });
 
-/** 是否还有子菜单（非按钮） */
 const visibleChildren = computed(
-  () =>
-    props.item.children?.filter(c => c.isButton !== 1) ?? []
+  () => props.item.children?.filter(child => child.isButton !== 1) ?? []
 );
-
-const onlyOneChild = computed(() => {
-  if (visibleChildren.value.length === 1) {
-    return visibleChildren.value[0];
-  }
-  return null;
-});
+const isLeaf = computed(() => visibleChildren.value.length === 0);
 
 function resolvePath(routePath: string): string {
   if (routePath.startsWith("/")) return routePath;
@@ -41,9 +34,11 @@ function resolvePath(routePath: string): string {
   return `${base}${routePath}`.replace(/\/\//g, "/");
 }
 
-function resolveIcon(menu: MenuNode): Component {
+function resolveIcon(menu: SidebarMenuNode): Component {
   const routeName = menu.routerName || "";
   const path = menu.path || "";
+  if (routeName === "Home") return HomeFilled;
+  if (routeName === "SidebarKnowledgeGroup") return Collection;
   if (routeName === "SystemManage") return Setting;
   if (routeName === "SystemUser") return User;
   if (routeName === "SystemRole") return Avatar;
@@ -62,28 +57,23 @@ function resolveIcon(menu: MenuNode): Component {
 </script>
 
 <template>
-  <!-- 只有一个子菜单：直接展示该项 -->
-  <el-menu-item
-    v-if="onlyOneChild && !onlyOneChild.children?.length"
-    :index="resolvePath(onlyOneChild.path)"
-  >
+  <el-menu-item v-if="isLeaf" :index="resolvePath(item.path)">
     <el-icon class="menu-icon">
-      <component :is="resolveIcon(onlyOneChild)" />
+      <component :is="resolveIcon(item)" />
     </el-icon>
-    <span>{{ onlyOneChild.menuName }}</span>
+    <span class="menu-label">{{ item.menuName }}</span>
   </el-menu-item>
 
-  <!-- 有多个子菜单：展示为 submenu -->
   <el-sub-menu v-else :index="resolvePath(item.path || item.menuName)">
     <template #title>
       <el-icon class="menu-icon">
         <component :is="resolveIcon(item)" />
       </el-icon>
-      <span>{{ item.menuName }}</span>
+      <span class="menu-label">{{ item.menuName }}</span>
     </template>
     <SidebarItem
       v-for="child in visibleChildren"
-      :key="child.path"
+      :key="child.menuId"
       :item="child"
       :base-path="resolvePath(item.path || item.menuName)"
     />
@@ -92,8 +82,12 @@ function resolveIcon(menu: MenuNode): Component {
 
 <style scoped>
 .menu-icon {
-  width: 20px;
-  margin-right: 9px;
-  font-size: 18px;
+  width: 18px;
+  margin-right: 10px;
+  font-size: 16px;
+}
+
+.menu-label {
+  letter-spacing: 0;
 }
 </style>

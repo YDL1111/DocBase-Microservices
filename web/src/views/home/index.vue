@@ -1,67 +1,100 @@
 <script setup lang="ts">
 import { computed, type Component } from "vue";
 import {
+  Avatar,
   ChatDotRound,
   Collection,
+  Menu as MenuIcon,
   Right,
-  UploadFilled
+  UploadFilled,
+  User
 } from "@element-plus/icons-vue";
 import { useUserStoreHook } from "@/store/modules/user";
 import { usePermissionStoreHook } from "@/store/modules/permission";
 import type { MenuNode } from "@/api/types";
 
+type WorkspaceArea = "business" | "governance";
+
 interface WorkspaceEntry {
   title: string;
-  description: string;
+  meta: string;
   path: string;
-  action: string;
   icon: Component;
   accent: string;
   routerName: string;
+  area: WorkspaceArea;
 }
 
 const user = useUserStoreHook();
 const permission = usePermissionStoreHook();
 const displayName = computed(() => user.displayName || "DocBase 用户");
+const today = new Intl.DateTimeFormat("zh-CN", {
+  month: "long",
+  day: "numeric",
+  weekday: "long"
+}).format(new Date());
 
 const entries: WorkspaceEntry[] = [
   {
-    title: "文档资产管理",
-    description: "集中维护企业制度、流程、规范与项目资料，形成可持续沉淀的知识资产。",
+    title: "知识库列表",
+    meta: "文档与分类",
     path: "/knowledge",
-    action: "进入知识库",
     icon: Collection,
-    accent: "#409eff",
-    routerName: "KnowledgeList"
+    accent: "#2476c9",
+    routerName: "KnowledgeList",
+    area: "business"
   },
   {
-    title: "知识入库任务",
-    description: "跟踪文档解析、切块、向量化与失败重试，掌握知识入库的完整进度。",
+    title: "入库任务",
+    meta: "任务编排",
     path: "/ingest/tasks",
-    action: "查看任务",
     icon: UploadFilled,
-    accent: "#14b8a6",
-    routerName: "IngestTask"
+    accent: "#0f8b78",
+    routerName: "IngestTask",
+    area: "business"
   },
   {
-    title: "智能问答入口",
-    description: "基于已授权的企业知识内容进行检索与问答，并保留连续会话记录。",
+    title: "AI 对话",
+    meta: "智能检索",
     path: "/ai/chat",
-    action: "开始对话",
     icon: ChatDotRound,
-    accent: "#8b5cf6",
-    routerName: "AiChat"
+    accent: "#7657b4",
+    routerName: "AiChat",
+    area: "business"
+  },
+  {
+    title: "用户管理",
+    meta: "账号与状态",
+    path: "/system/users",
+    icon: User,
+    accent: "#b66718",
+    routerName: "SystemUser",
+    area: "governance"
+  },
+  {
+    title: "角色管理",
+    meta: "权限与归属",
+    path: "/system/roles",
+    icon: Avatar,
+    accent: "#a54452",
+    routerName: "SystemRole",
+    area: "governance"
+  },
+  {
+    title: "菜单管理",
+    meta: "导航与资源",
+    path: "/system/menus",
+    icon: MenuIcon,
+    accent: "#536f35",
+    routerName: "SystemMenu",
+    area: "governance"
   }
 ];
 
 function collectRouterNames(nodes: MenuNode[], names = new Set<string>()) {
   for (const node of nodes) {
-    if (node.isButton !== 1 && node.routerName) {
-      names.add(node.routerName);
-    }
-    if (node.children?.length) {
-      collectRouterNames(node.children, names);
-    }
+    if (node.isButton !== 1 && node.routerName) names.add(node.routerName);
+    if (node.children?.length) collectRouterNames(node.children, names);
   }
   return names;
 }
@@ -70,249 +103,283 @@ const visibleEntries = computed(() => {
   const routerNames = collectRouterNames(permission.menus);
   return entries.filter(entry => routerNames.has(entry.routerName));
 });
+const businessEntries = computed(() =>
+  visibleEntries.value.filter(entry => entry.area === "business")
+);
+const governanceEntries = computed(() =>
+  visibleEntries.value.filter(entry => entry.area === "governance")
+);
 </script>
 
 <template>
-  <div class="workspace-page">
-    <section class="workspace-hero">
+  <main class="workspace-page">
+    <header class="workspace-header">
       <div>
-        <p class="eyebrow">Enterprise Knowledge Base</p>
-        <h1>企业文档知识库工作台</h1>
-        <p class="summary">
-          欢迎回来，{{ displayName }}。在这里统一管理文档资产、知识入库任务与智能问答。
-        </p>
+        <p class="workspace-date">{{ today }}</p>
+        <h1>欢迎回来，{{ displayName }}</h1>
       </div>
-      <img class="hero-logo" src="/logo.svg" alt="" aria-hidden="true" />
-    </section>
+      <div class="workspace-summary" aria-label="当前可用模块数量">
+        <strong>{{ visibleEntries.length }}</strong>
+        <span>可用模块</span>
+      </div>
+    </header>
 
-    <section v-if="visibleEntries.length" class="entry-grid" aria-label="知识库功能入口">
-      <router-link
-        v-for="entry in visibleEntries"
-        :key="entry.path"
-        :to="entry.path"
-        class="entry-card"
-        :style="{ '--entry-accent': entry.accent }"
-      >
-        <div class="entry-icon">
-          <el-icon><component :is="entry.icon" /></el-icon>
+    <section v-if="businessEntries.length" class="workspace-section">
+      <div class="section-heading">
+        <div>
+          <span class="section-index">01</span>
+          <h2>业务工作区</h2>
         </div>
-        <h2>{{ entry.title }}</h2>
-        <p>{{ entry.description }}</p>
-        <span class="entry-action">
-          {{ entry.action }}
-          <el-icon><Right /></el-icon>
-        </span>
-      </router-link>
+        <span>{{ businessEntries.length }} 项</span>
+      </div>
+      <div class="entry-grid">
+        <router-link
+          v-for="entry in businessEntries"
+          :key="entry.path"
+          :to="entry.path"
+          class="entry-card"
+          :style="{ '--entry-accent': entry.accent }"
+        >
+          <div class="entry-icon">
+            <el-icon><component :is="entry.icon" /></el-icon>
+          </div>
+          <div class="entry-copy">
+            <span>{{ entry.meta }}</span>
+            <h3>{{ entry.title }}</h3>
+          </div>
+          <el-icon class="entry-arrow"><Right /></el-icon>
+        </router-link>
+      </div>
     </section>
 
-    <section v-else class="workspace-empty" aria-label="暂无可用业务入口">
+    <section v-if="governanceEntries.length" class="workspace-section">
+      <div class="section-heading">
+        <div>
+          <span class="section-index">02</span>
+          <h2>系统治理</h2>
+        </div>
+        <span>{{ governanceEntries.length }} 项</span>
+      </div>
+      <div class="entry-grid">
+        <router-link
+          v-for="entry in governanceEntries"
+          :key="entry.path"
+          :to="entry.path"
+          class="entry-card"
+          :style="{ '--entry-accent': entry.accent }"
+        >
+          <div class="entry-icon">
+            <el-icon><component :is="entry.icon" /></el-icon>
+          </div>
+          <div class="entry-copy">
+            <span>{{ entry.meta }}</span>
+            <h3>{{ entry.title }}</h3>
+          </div>
+          <el-icon class="entry-arrow"><Right /></el-icon>
+        </router-link>
+      </div>
+    </section>
+
+    <section v-if="!visibleEntries.length" class="workspace-empty">
       <el-empty description="当前账号暂无可用业务入口" :image-size="72" />
     </section>
-
-    <section class="workspace-note">
-      <div>
-        <h2>统一身份与权限边界</h2>
-        <p>
-          所有页面与接口均通过 Gateway 进入微服务体系，菜单、按钮和数据操作继续由 IAM 权限模型控制。
-        </p>
-      </div>
-      <span class="note-mark">DocBase</span>
-    </section>
-  </div>
+  </main>
 </template>
 
 <style scoped>
 .workspace-page {
+  width: min(1280px, 100%);
   min-height: 100%;
-  padding: 24px;
-  background:
-    radial-gradient(circle at top left, rgba(20, 184, 166, 0.14), transparent 29%),
-    radial-gradient(circle at right center, rgba(64, 158, 255, 0.12), transparent 26%),
-    linear-gradient(180deg, #f4fbfb 0%, #f7f8fc 100%);
+  margin: 0 auto;
 }
 
-.workspace-hero,
-.workspace-note,
-.workspace-empty,
-.entry-card {
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06);
+.workspace-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  min-height: 132px;
+  padding: 26px 30px;
+  color: #173754;
+  background: #eef5ff;
+  border-left: 5px solid #246bce;
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgba(40, 78, 118, 0.08);
 }
 
-.workspace-hero {
+.workspace-date {
+  margin: 0 0 10px;
+  color: #66819d;
+  font-size: 13px;
+}
+
+.workspace-header h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.workspace-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: #667f99;
+}
+
+.workspace-summary strong {
+  color: #246bce;
+  font-family: "DIN Alternate", "Segoe UI", sans-serif;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.workspace-summary span {
+  font-size: 12px;
+}
+
+.workspace-section {
+  margin-top: 26px;
+}
+
+.section-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 190px;
-  padding: 30px 34px;
-  overflow: hidden;
-  border-radius: 20px;
+  margin-bottom: 12px;
+  color: #7a8999;
+  font-size: 12px;
 }
 
-.eyebrow {
-  margin: 0 0 12px;
-  color: #0f766e;
-  font-size: 13px;
+.section-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.section-index {
+  color: #0f8b78;
+  font-family: Consolas, monospace;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
-.workspace-hero h1 {
+.section-heading h2 {
   margin: 0;
-  color: #0f172a;
-  font-size: clamp(26px, 3vw, 34px);
-  line-height: 1.25;
-}
-
-.summary {
-  max-width: 720px;
-  margin: 16px 0 0;
-  color: #475569;
-  font-size: 15px;
-  line-height: 1.7;
-}
-
-.hero-logo {
-  width: 96px;
-  height: 96px;
-  margin: 0 20px 0 36px;
-  opacity: 0.9;
+  color: #213349;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .entry-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  margin: 20px 0;
+  gap: 12px;
 }
 
 .entry-card {
   position: relative;
-  min-height: 230px;
-  padding: 24px;
+  min-height: 108px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 20px;
   overflow: hidden;
-  border-radius: 18px;
   color: inherit;
-  cursor: pointer;
-  text-decoration: none;
+  background: #fff;
+  border: 1px solid #dfe6ed;
+  border-radius: 8px;
+  box-shadow: 0 5px 16px rgba(23, 42, 61, 0.045);
   transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    border-color 0.2s ease;
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
 }
 
-.workspace-empty {
-  margin: 20px 0;
-  border-radius: 18px;
-}
-
-.entry-card::before {
+.entry-card::after {
   position: absolute;
   top: 0;
-  left: 0;
-  width: 100%;
-  height: 3px;
+  right: 0;
+  width: 4px;
+  height: 100%;
   content: "";
   background: var(--entry-accent);
+  opacity: 0.75;
 }
 
 .entry-card:hover,
 .entry-card:focus-visible {
-  border-color: color-mix(in srgb, var(--entry-accent) 34%, transparent);
-  box-shadow: 0 20px 44px rgba(15, 23, 42, 0.1);
+  border-color: color-mix(in srgb, var(--entry-accent) 48%, #dfe6ed);
+  box-shadow: 0 10px 24px rgba(23, 42, 61, 0.09);
   outline: none;
-  transform: translateY(-3px);
+  transform: translateY(-2px);
 }
 
 .entry-icon {
+  width: 42px;
+  height: 42px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 46px;
   color: var(--entry-accent);
-  font-size: 24px;
-  background: color-mix(in srgb, var(--entry-accent) 11%, white);
-  border-radius: 12px;
+  font-size: 21px;
+  background: color-mix(in srgb, var(--entry-accent) 9%, white);
+  border: 1px solid color-mix(in srgb, var(--entry-accent) 18%, white);
+  border-radius: 6px;
+  flex: 0 0 42px;
 }
 
-.entry-card h2 {
-  margin: 20px 0 10px;
-  color: #0f172a;
-  font-size: 18px;
+.entry-copy {
+  min-width: 0;
 }
 
-.entry-card p,
-.workspace-note p {
-  margin: 0;
-  color: #475569;
-  font-size: 14px;
-  line-height: 1.75;
+.entry-copy span {
+  color: #8190a0;
+  font-size: 12px;
 }
 
-.entry-action {
-  position: absolute;
-  right: 24px;
-  bottom: 22px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--entry-accent);
-  font-size: 14px;
+.entry-copy h3 {
+  margin: 5px 0 0;
+  color: #1b2e44;
+  font-size: 15px;
   font-weight: 600;
 }
 
-.workspace-note {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 24px 28px;
-  border-radius: 18px;
+.entry-arrow {
+  margin-left: auto;
+  color: #a4b1bd;
+  flex: 0 0 auto;
 }
 
-.workspace-note h2 {
-  margin: 0 0 8px;
-  color: #0f172a;
-  font-size: 18px;
-}
-
-.note-mark {
-  margin-left: 28px;
-  color: #cbd5e1;
-  font-family: Consolas, Monaco, monospace;
-  font-size: 22px;
-  font-weight: 700;
+.workspace-empty {
+  margin-top: 26px;
+  background: #fff;
+  border: 1px solid #dfe6ed;
+  border-radius: 8px;
 }
 
 @media (max-width: 980px) {
   .entry-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .entry-card {
-    min-height: 210px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 640px) {
-  .workspace-page {
-    padding: 14px;
+  .workspace-header {
+    min-height: 118px;
+    align-items: flex-start;
+    padding: 23px 20px;
   }
 
-  .workspace-hero {
-    min-height: auto;
-    padding: 24px;
+  .workspace-header h1 {
+    font-size: 24px;
   }
 
-  .hero-logo,
-  .note-mark {
+  .workspace-summary {
     display: none;
   }
 
-  .workspace-note {
-    padding: 22px;
+  .entry-grid {
+    grid-template-columns: 1fr;
   }
 }
 

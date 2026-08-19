@@ -59,22 +59,23 @@ onBeforeUnmount(() => {
   height: 100%;
   display: flex;
   overflow: hidden;
-  background: #f0f2f5;
+  background: #f4f7fa;
 }
 
 .sidebar-container {
   position: relative;
   z-index: 1001;
-  width: 210px;
+  width: var(--docbase-sidebar-width);
   transition:
     width 0.2s ease,
     transform 0.25s ease;
-  background: #001529;
+  background: #f7f9fc;
+  border-right: 1px solid #dfe6ee;
   flex-shrink: 0;
 }
 
 .sidebar-collapsed .sidebar-container {
-  width: 54px;
+  width: var(--docbase-sidebar-collapsed-width);
 }
 
 .main-container {
@@ -83,7 +84,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   min-width: 0;
   height: 100vh;
-  background: #f0f2f5;
+  background: #f4f7fa;
 }
 
 .app-mask {
@@ -101,12 +102,12 @@ onBeforeUnmount(() => {
     top: 0;
     bottom: 0;
     left: 0;
-    width: 210px;
+    width: var(--docbase-sidebar-width);
     transform: translateX(0);
   }
 
   .mobile.sidebar-collapsed .sidebar-container {
-    width: 210px;
+    width: var(--docbase-sidebar-width);
     pointer-events: none;
     transform: translateX(-100%);
   }

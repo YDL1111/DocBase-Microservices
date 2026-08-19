@@ -19,12 +19,13 @@ import {
   getMeApi
 } from "@/api/auth";
 import { message } from "@/utils/message";
+import {
+  freshRouteLocation,
+  isDynamicImportError,
+  singleFlight
+} from "./navigation-recovery";
 
-const { VITE_ROUTER_HISTORY } = import.meta.env;
-const history =
-  VITE_ROUTER_HISTORY === "h5"
-    ? () => import("vue-router").then(m => m.createWebHistory())
-    : createWebHashHistory;
+const CHUNK_RELOAD_KEY = "docbase:chunk-reload-target";
 
 export const router: Router = createRouter({
   history: createWebHashHistory(),
@@ -36,7 +37,10 @@ export const router: Router = createRouter({
 });
 
 /** 拉取菜单 + 权限，注册动态路由 */
-async function bootstrapDynamicRoutes(): Promise<void> {
+let bootstrapEpoch = 0;
+
+const bootstrapDynamicRoutes = singleFlight(async (): Promise<boolean> => {
+  const epoch = bootstrapEpoch;
   const permission = usePermissionStoreHook();
   // v-auth 指令统一从 userStore.permissions 读取，这里必须同步更新
   const user = useUserStoreHook();
@@ -45,6 +49,7 @@ async function bootstrapDynamicRoutes(): Promise<void> {
       getMenusApi(),
       getPermissionsApi()
     ]);
+    if (epoch !== bootstrapEpoch) return false;
     const perms = Array.isArray(permsRes) ? permsRes : [];
     permission.setMenuTree(Array.isArray(menusRes) ? menusRes : []);
     permission.setPermissions(perms);
@@ -52,11 +57,13 @@ async function bootstrapDynamicRoutes(): Promise<void> {
     user.setPermissions(perms);
     const routes = permission.buildRoutes(permission.menuTree);
     permission.registerRoutes(routes);
+    return true;
   } catch (e) {
     // 菜单加载失败不阻塞登录，仅提示
     message.warning("菜单加载失败，请刷新重试");
+    return false;
   }
-}
+});
 
 router.beforeEach(async (to, from, next) => {
   progress.start();
@@ -85,12 +92,23 @@ router.beforeEach(async (to, from, next) => {
       return;
     }
 
+    // Static error pages must remain reachable when menu bootstrap itself fails.
+    if (to.path.startsWith("/error/")) {
+      next();
+      return;
+    }
+
     // 首次（刷新）需要重新注册动态路由
     const permission = usePermissionStoreHook();
     if (!permission.generated) {
-      await bootstrapDynamicRoutes();
-      // 重新进入当前路由，确保新注册的路由命中
-      next({ ...to, replace: true });
+      const ready = await bootstrapDynamicRoutes();
+      if (!ready) {
+        // Avoid retry loops and an accidental NotFound render on first load.
+        next({ path: "/error/500", replace: true });
+        return;
+      }
+      // Resolve by URL again. The old `to` may already be named NotFound.
+      next(freshRouteLocation(to));
       return;
     }
 
@@ -105,11 +123,30 @@ router.beforeEach(async (to, from, next) => {
 });
 
 router.afterEach(() => {
+  sessionStorage.removeItem(CHUNK_RELOAD_KEY);
   progress.done();
+});
+
+router.onError((error, to) => {
+  progress.done();
+  if (!isDynamicImportError(error)) return;
+
+  const target = to.fullPath || window.location.hash.slice(1) || "/home";
+  if (sessionStorage.getItem(CHUNK_RELOAD_KEY) === target) {
+    sessionStorage.removeItem(CHUNK_RELOAD_KEY);
+    message.error("页面资源加载失败，请稍后重试");
+    return;
+  }
+
+  // An open tab may reference chunks removed by a newer web image. Reload once
+  // to obtain the current index and asset manifest without creating a loop.
+  sessionStorage.setItem(CHUNK_RELOAD_KEY, target);
+  window.location.replace(router.resolve(target).href);
 });
 
 /** 重置路由（登出时） */
 export function resetRouter(): void {
+  ++bootstrapEpoch;
   // 删除所有带 menuId 的自定义路由
   router.getRoutes().forEach(route => {
     if (route.name && (route.meta as any)?.menuId) {
