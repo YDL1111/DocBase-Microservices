@@ -18,6 +18,11 @@ export interface ChatSource {
   document_id: number;
   file_name?: string | null;
   page?: number | null;
+  sheet?: string | null;
+  slide?: number | null;
+  heading_path?: string | null;
+  block_type?: string | null;
+  score?: number | null;
 }
 
 export type ChatStreamEvent =
@@ -102,7 +107,13 @@ function isChatSource(value: unknown): value is ChatSource {
   const source = value as Record<string, unknown>;
   return isPositiveSafeInteger(source.document_id)
     && (source.file_name === undefined || source.file_name === null || typeof source.file_name === "string")
-    && (source.page === undefined || source.page === null || isPositiveSafeInteger(source.page));
+    && (source.page === undefined || source.page === null || isPositiveSafeInteger(source.page))
+    && (source.sheet === undefined || source.sheet === null || typeof source.sheet === "string")
+    && (source.slide === undefined || source.slide === null || isPositiveSafeInteger(source.slide))
+    && (source.heading_path === undefined || source.heading_path === null || typeof source.heading_path === "string")
+    && (source.block_type === undefined || source.block_type === null || typeof source.block_type === "string")
+    && (source.score === undefined || source.score === null
+      || (typeof source.score === "number" && Number.isFinite(source.score)));
 }
 
 function validateRequest(request: ChatStreamRequest): void {

@@ -209,6 +209,11 @@ public class OutboxService {
         node.put("objectKey", event.objectKey());
         node.put("fileName", event.fileName());
         node.put("contentType", event.contentType());
+        if (event.documentTitle() != null) node.put("documentTitle", event.documentTitle());
+        if (event.folderId() != null) node.put("folderId", event.folderId());
+        if (event.visibility() != null) node.put("visibility", event.visibility());
+        if (event.documentCreatedAt() != null) node.put("documentCreatedAt", event.documentCreatedAt().toString());
+        if (event.documentUpdatedAt() != null) node.put("documentUpdatedAt", event.documentUpdatedAt().toString());
         node.put("operatorId", event.operatorId());
         node.put("schemaVersion", event.schemaVersion());
         node.put("occurredAt", event.occurredAt().toString());

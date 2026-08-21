@@ -53,7 +53,7 @@ class ChatStreamOrchestratorTest {
                 .verifyComplete();
 
         verify(knowledgeClient, never()).visibleDocumentIds(any(), any(), any());
-        verify(ragStreamService).stream(eq("hello"), isNull(), eq(List.of()), eq(11L));
+        verify(ragStreamService).stream(eq("hello"), eq(List.of()), eq(11L), eq(List.of()));
     }
 
     @Test
@@ -67,7 +67,7 @@ class ChatStreamOrchestratorTest {
                 .verifyComplete();
 
         verify(knowledgeClient, never()).visibleDocumentIds(any(), any(), any());
-        verify(ragStreamService).stream(eq("hello"), isNull(), eq(List.of()), eq(12L));
+        verify(ragStreamService).stream(eq("hello"), eq(List.of()), eq(12L), eq(List.of()));
     }
 
     @Test
@@ -82,7 +82,9 @@ class ChatStreamOrchestratorTest {
         when(knowledgeClient.visibleDocumentIds(20L, "Bearer x", "trace"))
                 .thenReturn(ApiResponse.success(List.of(201L, 202L)));
         when(concurrencyLock.tryAcquire(7L)).thenReturn("token");
-        when(ragStreamService.stream(eq("hello"), any(), eq(13L)))
+        when(ragStreamService.stream(eq("hello"),
+                org.mockito.ArgumentMatchers.<RagDtos.KnowledgeScope>anyList(), eq(13L),
+                org.mockito.ArgumentMatchers.<RagDtos.HistoryMessage>anyList()))
                 .thenReturn(Flux.just(ServerSentEvent.<Object>builder().event(RagDtos.OUT_DONE).data(null).build()));
 
         StepVerifier.create(orchestrator.stream(13L, List.of(10L, 20L), "hello", "request-3", 7L, "Bearer x", "trace"))
@@ -91,7 +93,7 @@ class ChatStreamOrchestratorTest {
 
         verify(ragStreamService).stream(eq("hello"), eq(List.of(
                 new RagDtos.KnowledgeScope(10L, List.of(101L)),
-                new RagDtos.KnowledgeScope(20L, List.of(201L, 202L)))), eq(13L));
+                new RagDtos.KnowledgeScope(20L, List.of(201L, 202L)))), eq(13L), eq(List.of()));
     }
 
     @Test
@@ -111,7 +113,9 @@ class ChatStreamOrchestratorTest {
                 .verifyComplete();
 
         verify(sessionService, never()).prepareStream(any(), any(), any(), any());
-        verify(ragStreamService, never()).stream(any(), any(), any(), any());
+        verify(ragStreamService, never()).stream(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.<RagDtos.KnowledgeScope>anyList(), org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.<RagDtos.HistoryMessage>anyList());
     }
 
     @Test
@@ -128,7 +132,9 @@ class ChatStreamOrchestratorTest {
                 .verifyComplete();
 
         verify(sessionService, never()).prepareStream(any(), any(), any(), any());
-        verify(ragStreamService, never()).stream(any(), any(), any(), any());
+        verify(ragStreamService, never()).stream(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.<RagDtos.KnowledgeScope>anyList(), org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.<RagDtos.HistoryMessage>anyList());
     }
 
     @Test
@@ -143,21 +149,23 @@ class ChatStreamOrchestratorTest {
         when(sessionService.prepareStream(16L, 7L, "hello", "request-6"))
                 .thenReturn(new ChatSessionService.StreamPrepareResult(false, 23L));
         when(concurrencyLock.tryAcquire(7L)).thenReturn("token");
-        when(ragStreamService.stream("hello", 20L, List.of(201L), 16L))
+        when(ragStreamService.stream(eq("hello"), eq(List.of(
+                new RagDtos.KnowledgeScope(20L, List.of(201L)))), eq(16L), eq(List.of())))
                 .thenReturn(Flux.just(ServerSentEvent.<Object>builder().event(RagDtos.OUT_DONE).data(null).build()));
 
         StepVerifier.create(orchestrator.stream(16L, List.of(10L, 20L), "hello", "request-6", 7L, "Bearer x", "trace"))
                 .expectNextCount(2)
                 .verifyComplete();
 
-        verify(ragStreamService).stream("hello", 20L, List.of(201L), 16L);
+        verify(ragStreamService).stream(eq("hello"), eq(List.of(
+                new RagDtos.KnowledgeScope(20L, List.of(201L)))), eq(16L), eq(List.of()));
     }
 
     private void stubSuccessfulStream(Long sessionId) {
         when(sessionService.prepareStream(sessionId, 7L, "hello", "request-" + (sessionId == 11L ? "1" : "2")))
                 .thenReturn(new ChatSessionService.StreamPrepareResult(false, 21L));
         when(concurrencyLock.tryAcquire(7L)).thenReturn("token");
-        when(ragStreamService.stream(eq("hello"), isNull(), eq(List.of()), eq(sessionId)))
+        when(ragStreamService.stream(eq("hello"), eq(List.of()), eq(sessionId), eq(List.of())))
                 .thenReturn(Flux.just(ServerSentEvent.<Object>builder()
                         .event(RagDtos.OUT_DONE).data(null).build()));
     }

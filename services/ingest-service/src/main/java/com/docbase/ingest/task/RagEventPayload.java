@@ -38,6 +38,21 @@ public class RagEventPayload {
     @JsonProperty("contentType")
     private String contentType;
 
+    @JsonProperty("documentTitle")
+    private String documentTitle;
+
+    @JsonProperty("folderId")
+    private Long folderId;
+
+    @JsonProperty("visibility")
+    private Integer visibility;
+
+    @JsonProperty("documentCreatedAt")
+    private String documentCreatedAt;
+
+    @JsonProperty("documentUpdatedAt")
+    private String documentUpdatedAt;
+
     @JsonProperty("operatorId")
     private Long operatorId;
 
@@ -71,6 +86,16 @@ public class RagEventPayload {
     public void setFileName(String fileName) { this.fileName = fileName; }
     public String getContentType() { return contentType; }
     public void setContentType(String contentType) { this.contentType = contentType; }
+    public String getDocumentTitle() { return documentTitle; }
+    public void setDocumentTitle(String documentTitle) { this.documentTitle = documentTitle; }
+    public Long getFolderId() { return folderId; }
+    public void setFolderId(Long folderId) { this.folderId = folderId; }
+    public Integer getVisibility() { return visibility; }
+    public void setVisibility(Integer visibility) { this.visibility = visibility; }
+    public String getDocumentCreatedAt() { return documentCreatedAt; }
+    public void setDocumentCreatedAt(String documentCreatedAt) { this.documentCreatedAt = documentCreatedAt; }
+    public String getDocumentUpdatedAt() { return documentUpdatedAt; }
+    public void setDocumentUpdatedAt(String documentUpdatedAt) { this.documentUpdatedAt = documentUpdatedAt; }
     public Long getOperatorId() { return operatorId; }
     public void setOperatorId(Long operatorId) { this.operatorId = operatorId; }
     public int getSchemaVersion() { return schemaVersion; }

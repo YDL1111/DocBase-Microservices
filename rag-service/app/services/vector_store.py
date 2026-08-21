@@ -251,6 +251,15 @@ class VectorStoreService:
     def search_candidates(self, knowledge_base_id: int, query: str,
                           visible_document_ids: List[int],
                           candidate_k: int = None) -> List[ScoredDocument]:
+        query_embedding = embedding_service.embed_query(query)
+        return self.search_candidates_by_embedding(
+            knowledge_base_id, query_embedding, visible_document_ids, candidate_k
+        )
+
+    def search_candidates_by_embedding(self, knowledge_base_id: int,
+                                       query_embedding: list[float],
+                                       visible_document_ids: List[int],
+                                       candidate_k: int = None) -> List[ScoredDocument]:
         """
         Search candidate chunks and preserve relevance scores and embeddings.
 
@@ -286,7 +295,6 @@ class VectorStoreService:
             ]
         }
 
-        query_embedding = embedding_service.embed_query(query)
         raw_results = collection._collection.query(
             query_embeddings=[query_embedding],
             n_results=candidate_k * 3,

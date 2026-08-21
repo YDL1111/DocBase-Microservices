@@ -82,6 +82,22 @@ class RagChatStreamServiceTest {
     }
 
     @Test
+    void stream_sendsBoundedHistoryContract() throws Exception {
+        mockWebServer.enqueue(new MockResponse()
+                .setBody("data: {\"type\":\"done\",\"data\":null}\n\n")
+                .setHeader("Content-Type", "text/event-stream"));
+
+        service.stream("它有什么作用？", List.of(new RagDtos.KnowledgeScope(1L, List.of(2L))),
+                10L, List.of(
+                        new RagDtos.HistoryMessage("user", "介绍八大车间"),
+                        new RagDtos.HistoryMessage("assistant", "八大车间包括……")
+                )).blockLast();
+
+        String body = mockWebServer.takeRequest(2, TimeUnit.SECONDS).getBody().readUtf8();
+        assertThat(body).contains("\"history\":[{\"role\":\"user\",\"content\":\"介绍八大车间\"}");
+    }
+
+    @Test
     void stream_filtersOutOfRangeSourceDocumentIds() {
         String sse = "data: {\"type\":\"sources\",\"data\":[{\"document_id\":1,\"file_name\":\"a.pdf\",\"page\":1},{\"document_id\":999,\"file_name\":\"secret.pdf\",\"page\":1}]}\n\n"
                 + "data: {\"type\":\"done\",\"data\":null}\n\n";

@@ -26,6 +26,16 @@ public class IngestTask {
 
     private String contentType;
 
+    private String documentTitle;
+
+    private Long folderId;
+
+    private Integer visibility;
+
+    private LocalDateTime documentCreatedAt;
+
+    private LocalDateTime documentUpdatedAt;
+
     private String taskType;
 
     private String status;
@@ -68,6 +78,16 @@ public class IngestTask {
     public void setFileName(String fileName) { this.fileName = fileName; }
     public String getContentType() { return contentType; }
     public void setContentType(String contentType) { this.contentType = contentType; }
+    public String getDocumentTitle() { return documentTitle; }
+    public void setDocumentTitle(String documentTitle) { this.documentTitle = documentTitle; }
+    public Long getFolderId() { return folderId; }
+    public void setFolderId(Long folderId) { this.folderId = folderId; }
+    public Integer getVisibility() { return visibility; }
+    public void setVisibility(Integer visibility) { this.visibility = visibility; }
+    public LocalDateTime getDocumentCreatedAt() { return documentCreatedAt; }
+    public void setDocumentCreatedAt(LocalDateTime documentCreatedAt) { this.documentCreatedAt = documentCreatedAt; }
+    public LocalDateTime getDocumentUpdatedAt() { return documentUpdatedAt; }
+    public void setDocumentUpdatedAt(LocalDateTime documentUpdatedAt) { this.documentUpdatedAt = documentUpdatedAt; }
     public String getTaskType() { return taskType; }
     public void setTaskType(String taskType) { this.taskType = taskType; }
     public String getStatus() { return status; }

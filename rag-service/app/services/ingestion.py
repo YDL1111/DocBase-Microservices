@@ -4,6 +4,7 @@ RAG ingestion service - handles document processing workflow.
 import hashlib
 import tempfile
 import os
+from datetime import datetime, timezone
 from typing import Optional
 
 from app.core.config import settings
@@ -33,6 +34,11 @@ class IngestionService:
         object_key: str,
         file_name: str,
         content_type: Optional[str] = None,
+        document_title: Optional[str] = None,
+        folder_id: Optional[int] = None,
+        visibility: Optional[int] = None,
+        document_created_at: Optional[str] = None,
+        document_updated_at: Optional[str] = None,
     ) -> dict:
         """
         Process a document for RAG ingestion.
@@ -64,13 +70,25 @@ class IngestionService:
 
             # Add metadata to documents
             for doc in documents:
-                doc.metadata.update({
+                metadata = {
                     "knowledge_base_id": knowledge_base_id,
                     "document_id": document_id,
                     "version_id": version_id,
                     "file_name": file_name,
+                    "content_type": content_type or meta.get("file_type", ""),
                     "content_hash": content_hash,
-                })
+                    "ingested_at": datetime.now(timezone.utc).isoformat(),
+                }
+                optional_metadata = {
+                    "document_title": document_title,
+                    "folder_id": folder_id,
+                    "visibility": visibility,
+                    "document_created_at": document_created_at,
+                    "document_updated_at": document_updated_at,
+                }
+                metadata.update({key: value for key, value in optional_metadata.items()
+                                 if value is not None and value != ""})
+                doc.metadata.update(metadata)
 
             # Chunk documents
             chunks = self.chunker.chunk_documents(documents)

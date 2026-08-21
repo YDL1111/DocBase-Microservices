@@ -49,9 +49,33 @@ def test_context_budget_only_includes_whole_chunks():
         {"file_name": "fits.txt", "content": "完整片段", "document_id": 2},
     ]
 
-    context, included = RAGService._pack_context(results, 80)
+    context, included = RAGService._pack_context(results, 30)
 
     assert "A" * 20 not in context
     assert "完整片段" in context
     assert [item["document_id"] for item in included] == [2]
 
+
+def test_low_relevance_candidates_are_filtered_before_mmr(monkeypatch):
+    from app.services import rag as rag_module
+    monkeypatch.setattr(rag_module.settings, "MIN_RELEVANCE_SCORE", 0.35)
+    service = RAGService()
+
+    ranked = service._rank_candidates([
+        candidate("low", 1, 0, 0.2, (1.0, 0.0)),
+        candidate("kept", 2, 0, 0.8, (0.0, 1.0)),
+    ], 5)
+
+    assert [item.document.metadata["chunk_id"] for item in ranked] == ["kept"]
+
+
+def test_context_preserves_structured_source_location():
+    result = {
+        "file_name": "report.xlsx", "content": "完整数据行", "document_id": 1,
+        "sheet": "年度统计", "heading_path": "华东区", "page": None, "slide": None,
+    }
+
+    context, included = RAGService._pack_context([result], 100)
+
+    assert "Sheet 年度统计" in context and "华东区" in context
+    assert included == [result]

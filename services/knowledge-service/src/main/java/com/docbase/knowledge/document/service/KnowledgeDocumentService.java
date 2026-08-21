@@ -167,7 +167,8 @@ public class KnowledgeDocumentService {
                 document.getObjectKey(),
                 document.getOriginalFilename(),
                 document.getContentType(),
-                userId
+                userId,
+                document
         ));
 
         if (uploadRequestId != null && uploadRequestMapper.completeIfLeaseOwner(uploadRequestId, leaseToken, document.getId()) != 1) {
@@ -183,7 +184,8 @@ public class KnowledgeDocumentService {
     private KnowledgeEvent createKnowledgeEvent(
             String eventType, String aggregateType, String aggregateId,
             Long knowledgeBaseId, Long documentId, Long versionId, String objectKey,
-            String fileName, String contentType, Long userId) {
+            String fileName, String contentType, Long userId, KnowledgeDocument document) {
+        Instant eventTime = Instant.now();
         return new KnowledgeEvent(
                 UUID.randomUUID(),
                 eventType,
@@ -195,9 +197,16 @@ public class KnowledgeDocumentService {
                 objectKey,
                 fileName != null ? fileName : "",
                 contentType != null ? contentType : "",
+                document != null ? document.getTitle() : null,
+                document != null ? document.getFolderId() : null,
+                document != null ? document.getVisibility() : null,
+                document != null && document.getCreatedAt() != null
+                        ? document.getCreatedAt().toInstant(java.time.ZoneOffset.UTC) : eventTime,
+                document != null && document.getUpdatedAt() != null
+                        ? document.getUpdatedAt().toInstant(java.time.ZoneOffset.UTC) : eventTime,
                 userId,
                 KnowledgeEvent.CURRENT_SCHEMA_VERSION,
-                Instant.now(),
+                eventTime,
                 null  // traceId
         );
     }
@@ -280,7 +289,8 @@ public class KnowledgeDocumentService {
                 existing.getObjectKey(),
                 existing.getOriginalFilename(),
                 existing.getContentType(),
-                userId
+                userId,
+                existing
         ));
     }
 
@@ -316,7 +326,8 @@ public class KnowledgeDocumentService {
                 existing.getObjectKey(),
                 existing.getOriginalFilename(),
                 existing.getContentType(),
-                userId
+                userId,
+                existing
         ));
     }
 

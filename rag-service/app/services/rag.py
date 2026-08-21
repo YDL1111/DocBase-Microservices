@@ -1,6 +1,7 @@
 """
 RAG inference service - handles retrieval and generation.
 """
+import asyncio
 import re
 import time
 from math import sqrt
@@ -14,6 +15,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.services.vector_store import vector_store
 from app.services.vector_store import ScoredDocument
+from app.services.embedding import embedding_service
 
 logger = get_logger(__name__)
 
@@ -31,6 +33,12 @@ SYSTEM_PROMPT = """你是企业内部知识库助手，请严格基于参考文�
 
 GENERAL_SYSTEM_PROMPT = """你是 DocBase 智能助手。请直接、准确、简洁地回答用户问题。
 当信息不足或无法确定时，明确说明不确定性，不要编造事实或伪造来源。默认使用中文回答。"""
+
+QUERY_REWRITE_PROMPT = """根据最近对话，把当前问题改写成可独立用于知识库检索的问题。
+只输出改写后的问题，不要回答，不要补充对话中没有的信息。
+最近对话：
+{history}
+当前问题：{query}"""
 
 
 class RAGService:
@@ -62,6 +70,16 @@ class RAGService:
             max_tokens=2048,
         )
 
+    def _get_rewrite_llm(self) -> ChatOpenAI:
+        return ChatOpenAI(
+            api_key=settings.CHAT_API_KEY,
+            base_url=settings.CHAT_BASE_URL,
+            model=settings.CHAT_MODEL,
+            streaming=False,
+            temperature=0,
+            max_tokens=128,
+        )
+
     def retrieve(
         self,
         query: str,
@@ -85,8 +103,9 @@ class RAGService:
             return []
 
         result_limit = min(max(top_k or settings.RERANK_TOP_K, 1), 50)
+        query_embedding = embedding_service.embed_query(query)
         candidates = self._retrieve_candidates(
-            query,
+            query_embedding,
             knowledge_base_id,
             visible_document_ids,
             max(settings.RETRIEVAL_CANDIDATE_K, result_limit * 3),
@@ -100,14 +119,16 @@ class RAGService:
         return results
 
     @staticmethod
-    def _retrieve_candidates(query: str, knowledge_base_id: int,
+    def _retrieve_candidates(query_embedding: list[float], knowledge_base_id: int,
                              visible_document_ids: List[int],
                              candidate_k: int) -> list[ScoredDocument]:
-        return vector_store.search_candidates(
-            knowledge_base_id, query, visible_document_ids, candidate_k
+        return vector_store.search_candidates_by_embedding(
+            knowledge_base_id, query_embedding, visible_document_ids, candidate_k
         )
 
     def _rank_candidates(self, candidates: list[ScoredDocument], limit: int) -> list[ScoredDocument]:
+        candidates = [item for item in candidates
+                      if item.relevance_score >= settings.MIN_RELEVANCE_SCORE]
         deduplicated = self._deduplicate_candidates(candidates)
         if not deduplicated or limit <= 0:
             return []
@@ -197,23 +218,95 @@ class RAGService:
             "file_name": chunk.metadata.get("file_name", "unknown"),
             "document_id": chunk.metadata.get("document_id"),
             "page": chunk.metadata.get("page"),
+            "sheet": chunk.metadata.get("sheet"),
+            "slide": chunk.metadata.get("slide"),
+            "heading_path": chunk.metadata.get("heading_path"),
+            "block_type": chunk.metadata.get("block_type"),
             "score": candidate.relevance_score,
         }
 
-    @staticmethod
-    def _pack_context(results: list[dict], max_length: int) -> tuple[str, list[dict]]:
+    @classmethod
+    def _pack_context(cls, results: list[dict], max_tokens: int) -> tuple[str, list[dict]]:
         context_parts: list[str] = []
         included: list[dict] = []
-        used_length = 0
+        used_tokens = 0
         for result in results:
-            part = f"[来源: {result['file_name']}]\n{result['content']}"
-            separator_length = 2 if context_parts else 0
-            if used_length + separator_length + len(part) > max_length:
+            location = cls._source_location(result)
+            part = f"[参考片段: {result['file_name']}{location}]\n{result['content']}"
+            part_tokens = cls._estimate_tokens(part) + (1 if context_parts else 0)
+            if used_tokens + part_tokens > max_tokens:
                 continue
             context_parts.append(part)
             included.append(result)
-            used_length += separator_length + len(part)
+            used_tokens += part_tokens
         return "\n\n".join(context_parts), included
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        cjk = len(re.findall(r"[一-鿿]", text))
+        remainder = len(re.sub(r"[一-鿿\s]", "", text))
+        return max(1, cjk + (remainder + 3) // 4)
+
+    @staticmethod
+    def _source_location(result: dict) -> str:
+        fields = []
+        if result.get("page") is not None:
+            fields.append(f"第 {result['page']} 页")
+        if result.get("sheet"):
+            fields.append(f"Sheet {result['sheet']}")
+        if result.get("slide") is not None:
+            fields.append(f"Slide {result['slide']}")
+        if result.get("heading_path"):
+            fields.append(str(result["heading_path"]))
+        return f"；{'；'.join(fields)}" if fields else ""
+
+    @staticmethod
+    def _history_text(history: Sequence[object]) -> str:
+        eligible_lines = []
+        for item in history[-settings.HISTORY_MAX_MESSAGES:]:
+            role = getattr(item, "role", None) or (item.get("role") if isinstance(item, dict) else "")
+            content = getattr(item, "content", None) or (item.get("content") if isinstance(item, dict) else "")
+            content = str(content).strip()
+            if role in {"user", "assistant"} and content:
+                eligible_lines.append(f"{'用户' if role == 'user' else '助手'}：{content}")
+
+        newest_first = []
+        total = 0
+        for line in reversed(eligible_lines):
+            if total + len(line) > settings.HISTORY_MAX_CHARS:
+                if not newest_first:
+                    newest_first.append(line[:settings.HISTORY_MAX_CHARS])
+                break
+            newest_first.append(line)
+            total += len(line)
+        return "\n".join(reversed(newest_first))
+
+    @staticmethod
+    def _needs_query_rewrite(query: str, history_text: str) -> bool:
+        if not settings.QUERY_REWRITE_ENABLED or not history_text:
+            return False
+        return bool(re.search(
+            r"它|他|她|这个|那个|上述|前面|刚才|其中|其作用|该文档|第二个|"
+            r"还有|继续|然后呢|怎么样呢|那么",
+            query.strip(), re.IGNORECASE,
+        )) or query.strip().startswith(("那", "还有", "继续", "再说", "第二"))
+
+    async def _rewrite_query(self, query: str, history_text: str) -> str:
+        if not self._needs_query_rewrite(query, history_text):
+            return query
+        try:
+            prompt = ChatPromptTemplate.from_template(QUERY_REWRITE_PROMPT)
+            response = await asyncio.wait_for(
+                (prompt | self._get_rewrite_llm()).ainvoke({
+                    "history": history_text, "query": query,
+                }),
+                timeout=settings.QUERY_REWRITE_TIMEOUT_SECONDS,
+            )
+            rewritten = str(getattr(response, "content", response)).strip()
+            return rewritten[:settings.HISTORY_MAX_CHARS] if rewritten else query
+        except Exception as exception:
+            logger.warning("Query rewrite failed; using original query: %s", exception)
+            return query
 
     async def chat_stream(
         self,
@@ -221,6 +314,7 @@ class RAGService:
         knowledge_base_id: Optional[int] = None,
         visible_document_ids: Optional[List[int]] = None,
         knowledge_scopes: Optional[Sequence[object]] = None,
+        history: Optional[Sequence[object]] = None,
     ) -> AsyncGenerator[str, None]:
         """
         Stream RAG chat response with SSE.
@@ -238,6 +332,7 @@ class RAGService:
         retrieval_ms = 0.0
         first_token_logged = False
         try:
+            history_text = self._history_text(history or [])
             scopes: list[tuple[int, list[int]]] = []
             for scope in knowledge_scopes or []:
                 scope_id = getattr(scope, "knowledge_base_id", None)
@@ -251,10 +346,10 @@ class RAGService:
                 yield json.dumps({"type": "metadata", "sources": []})
                 prompt = ChatPromptTemplate.from_messages([
                     ("system", GENERAL_SYSTEM_PROMPT),
-                    ("human", "{query}"),
+                    ("human", "最近对话：\n{history}\n\n当前问题：{query}"),
                 ])
                 chain = prompt | self._get_llm(streaming=True) | StrOutputParser()
-                async for chunk in chain.astream({"query": query}):
+                async for chunk in chain.astream({"history": history_text, "query": query}):
                     if chunk:
                         yield json.dumps({"type": "token", "content": chunk})
                 yield json.dumps({"type": "sources", "data": []})
@@ -263,14 +358,21 @@ class RAGService:
 
             # Retrieve relevant documents
             retrieval_started_at = time.perf_counter()
+            retrieval_query = await self._rewrite_query(query, history_text)
+            query_embedding = await asyncio.to_thread(
+                embedding_service.embed_query, retrieval_query
+            )
             final_top_k = min(max(settings.RERANK_TOP_K, 1), 50)
             total_candidate_k = max(settings.RETRIEVAL_CANDIDATE_K, final_top_k * 3)
             per_base_candidate_k = max(final_top_k, (total_candidate_k + len(scopes) - 1) // len(scopes))
-            candidates: list[ScoredDocument] = []
-            for scope_id, scope_document_ids in scopes:
-                candidates.extend(self._retrieve_candidates(
-                    query, scope_id, scope_document_ids, per_base_candidate_k
-                ))
+            per_scope_candidates = await asyncio.gather(*[
+                asyncio.to_thread(
+                    self._retrieve_candidates,
+                    query_embedding, scope_id, scope_document_ids, per_base_candidate_k,
+                )
+                for scope_id, scope_document_ids in scopes
+            ])
+            candidates = [candidate for items in per_scope_candidates for candidate in items]
             results = [self._candidate_to_result(candidate) for candidate in self._rank_candidates(
                 candidates, final_top_k
             )]
@@ -286,7 +388,7 @@ class RAGService:
                 yield json.dumps({"type": "done"})
                 return
 
-            context, included_results = self._pack_context(results, settings.MAX_CONTEXT_LENGTH)
+            context, included_results = self._pack_context(results, settings.MAX_CONTEXT_TOKENS)
             if not included_results:
                 yield json.dumps({"type": "metadata", "sources": []})
                 yield json.dumps({"type": "token", "content": "未找到相关信息。"})
@@ -294,7 +396,7 @@ class RAGService:
                 return
 
             sources = []
-            seen_docs = set()
+            seen_locations = set()
 
             for r in included_results:
                 doc_id = r["document_id"]
@@ -302,10 +404,17 @@ class RAGService:
                     "document_id": doc_id,
                     "file_name": r["file_name"],
                     "page": r.get("page"),
+                    "sheet": r.get("sheet"),
+                    "slide": r.get("slide"),
+                    "heading_path": r.get("heading_path"),
+                    "block_type": r.get("block_type"),
+                    "score": r.get("score"),
                 }
-                if doc_id not in seen_docs:
+                source_key = (doc_id, r.get("page"), r.get("sheet"), r.get("slide"),
+                              r.get("heading_path"))
+                if source_key not in seen_locations:
                     sources.append(source_info)
-                    seen_docs.add(doc_id)
+                    seen_locations.add(source_key)
 
             # Send metadata
             yield json.dumps({"type": "metadata", "sources": sources})
@@ -313,13 +422,15 @@ class RAGService:
             # Generate response with streaming
             prompt = ChatPromptTemplate.from_messages([
                 ("system", SYSTEM_PROMPT),
-                ("human", "用户问题：{query}\n请基于以上参考文档回答。"),
+                ("human", "最近对话：\n{history}\n\n用户问题：{query}\n请基于以上参考文档回答。"),
             ])
 
             llm = self._get_llm(streaming=True)
             chain = prompt | llm | StrOutputParser()
 
-            async for chunk in chain.astream({"context": context, "query": query}):
+            async for chunk in chain.astream({
+                "context": context, "history": history_text, "query": query
+            }):
                 if chunk:
                     if not first_token_logged:
                         first_token_logged = True

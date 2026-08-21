@@ -6,6 +6,7 @@ from typing import Iterable
 
 from app.core.logging import get_logger
 from app.services.document_block import NoExtractableTextError, ParsedBlock
+from app.services.document_cleaner import document_cleaner
 
 logger = get_logger(__name__)
 
@@ -49,7 +50,7 @@ class DocumentParser:
         else:
             raise ValueError(f"Unsupported file type: {ext}")
 
-        blocks = [block for block in blocks if block.normalized_text()]
+        blocks = document_cleaner.clean_blocks(blocks, file_type)
         if not blocks:
             raise NoExtractableTextError()
 
@@ -222,10 +223,10 @@ class DocumentParser:
         with open(file_path, "rb") as file:
             raw = file.read()
         encoding = chardet.detect(raw).get("encoding", "utf-8") or "utf-8"
-        text = raw.decode(encoding, errors="replace").strip()
+        text = document_cleaner.clean_source(raw.decode(encoding, errors="replace"), extension)
         if not text:
             return []
-        if extension == "md":
+        if extension in {"md", "html", "htm"}:
             return self._parse_markdown_sections(text)
         return [ParsedBlock(page_content=text, block_type="prose")]
 

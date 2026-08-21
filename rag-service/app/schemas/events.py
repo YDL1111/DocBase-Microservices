@@ -18,6 +18,11 @@ class RagIngestRequest(BaseModel):
     object_key: str
     file_name: str
     content_type: Optional[str] = None
+    document_title: Optional[str] = None
+    folder_id: Optional[int] = None
+    visibility: Optional[int] = None
+    document_created_at: Optional[datetime] = None
+    document_updated_at: Optional[datetime] = None
     operator_id: int
     schema_version: int = 1
     occurred_at: datetime
@@ -47,6 +52,11 @@ class KnowledgeScope(BaseModel):
     visible_document_ids: list[int]
 
 
+class HistoryMessage(BaseModel):
+    role: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     """Internal chat request with visible document filtering."""
     query: str
@@ -55,6 +65,7 @@ class ChatRequest(BaseModel):
     knowledge_base_id: Optional[int] = None
     visible_document_ids: list[int] = Field(default_factory=list)
     session_id: Optional[str] = None
+    history: list[HistoryMessage] = Field(default_factory=list)
 
 
 class RetrieveRequest(BaseModel):

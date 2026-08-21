@@ -31,6 +31,9 @@ public interface ChatConstants {
     int MAX_PAGE_SIZE = 100;
     /** Default page size. */
     int DEFAULT_PAGE_SIZE = 20;
+    /** Sliding conversation window sent to RAG (roughly six user/assistant turns). */
+    int RAG_HISTORY_MAX_MESSAGES = 12;
+    int RAG_HISTORY_MAX_CHARS = 12000;
 
     // --- Redis lock ---
     String STREAM_LOCK_KEY_PREFIX = "docbase:chat:stream:";

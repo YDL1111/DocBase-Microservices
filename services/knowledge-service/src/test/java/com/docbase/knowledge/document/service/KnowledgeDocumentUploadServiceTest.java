@@ -65,7 +65,7 @@ class KnowledgeDocumentUploadServiceTest {
         request.setLeaseToken("lease-token");
         when(validator.validateMetadata(any(), any(), any(), any(), any(), any())).thenReturn(metadata);
         when(validator.completeWithChecksum(any(), any())).thenReturn(upload);
-        when(requestService.reserve(1L, 2L, upload))
+        when(requestService.reserve(anyLong(), anyLong(), any(DocumentUploadValidator.ValidatedUpload.class)))
                 .thenReturn(new KnowledgeUploadRequestService.Reservation(request, false, null));
         return new KnowledgeDocumentUploadService(validator, documentService, requestService, objectStorageService);
     }

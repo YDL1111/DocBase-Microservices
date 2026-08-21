@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 
@@ -129,6 +130,29 @@ public class ChatSessionService {
                 .eq("session_id", sessionId)
                 .eq("deleted", 0)
                 .orderByAsc("created_at"));
+    }
+
+    /** Returns a bounded, chronological sliding window of completed conversation messages. */
+    public List<ChatMessage> listRecentContextMessages(Long sessionId, Long userId) {
+        requireOwnedSession(sessionId, userId);
+        List<ChatMessage> newestFirst = messageMapper.selectList(new QueryWrapper<ChatMessage>()
+                .eq("session_id", sessionId)
+                .eq("deleted", 0)
+                .in("role", ChatConstants.MESSAGE_ROLE_USER, ChatConstants.MESSAGE_ROLE_ASSISTANT)
+                .eq("status", ChatConstants.MESSAGE_STATUS_COMPLETED)
+                .orderByDesc("id")
+                .last("LIMIT " + ChatConstants.RAG_HISTORY_MAX_MESSAGES));
+        List<ChatMessage> bounded = new ArrayList<>();
+        int usedChars = 0;
+        for (ChatMessage message : newestFirst) {
+            String content = message.getContent() == null ? "" : message.getContent().trim();
+            if (content.isEmpty()) continue;
+            if (usedChars + content.length() > ChatConstants.RAG_HISTORY_MAX_CHARS) break;
+            bounded.add(message);
+            usedChars += content.length();
+        }
+        Collections.reverse(bounded);
+        return List.copyOf(bounded);
     }
 
     /**

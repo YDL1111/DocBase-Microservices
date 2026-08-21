@@ -77,6 +77,12 @@ public class KnowledgeEventDeserializer {
                     node.get("contentType").asText() : "";
             String traceId = node.has("traceId") && !node.get("traceId").isNull() ?
                     node.get("traceId").asText() : null;
+            String documentTitle = optionalText(node, "documentTitle");
+            Long folderId = optionalLong(node, "folderId");
+            Integer visibility = node.has("visibility") && !node.get("visibility").isNull()
+                    ? node.get("visibility").asInt() : null;
+            Instant documentCreatedAt = optionalInstant(node, "documentCreatedAt");
+            Instant documentUpdatedAt = optionalInstant(node, "documentUpdatedAt");
 
             return new KnowledgeEvent(
                     UUID.fromString(eventId),
@@ -89,6 +95,11 @@ public class KnowledgeEventDeserializer {
                     objectKey,
                     fileName,
                     contentType,
+                    documentTitle,
+                    folderId,
+                    visibility,
+                    documentCreatedAt,
+                    documentUpdatedAt,
                     operatorId,
                     schemaVersion,
                     occurredAt,
@@ -100,6 +111,19 @@ public class KnowledgeEventDeserializer {
         } catch (Exception e) {
             throw new EventValidationException("Failed to parse event: " + e.getMessage(), e);
         }
+    }
+
+    private String optionalText(com.fasterxml.jackson.databind.JsonNode node, String field) {
+        return node.has(field) && !node.get(field).isNull() ? node.get(field).asText() : null;
+    }
+
+    private Long optionalLong(com.fasterxml.jackson.databind.JsonNode node, String field) {
+        return node.has(field) && !node.get(field).isNull() ? node.get(field).asLong() : null;
+    }
+
+    private Instant optionalInstant(com.fasterxml.jackson.databind.JsonNode node, String field) {
+        String value = optionalText(node, field);
+        return value == null || value.isBlank() ? null : Instant.parse(value);
     }
 
     private String getRequiredString(com.fasterxml.jackson.databind.JsonNode node, String field) throws EventValidationException {

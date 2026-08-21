@@ -139,3 +139,44 @@ async def test_ingestion_upsert_runs_inside_document_lock(monkeypatch):
 
     assert result["chunk_count"] == 1
     assert observed == [("acquire", 5, 8), ("upsert", True)]
+
+
+@pytest.mark.asyncio
+async def test_ingestion_persists_business_metadata_on_chunks(monkeypatch):
+    captured_chunks = []
+
+    @contextmanager
+    def acquire(_knowledge_base_id, _document_id):
+        yield
+
+    def upsert(_knowledge_base_id, _document_id, _version_id, chunks, **_kwargs):
+        captured_chunks.extend(chunks)
+        return len(chunks)
+
+    monkeypatch.setattr(ingestion_module.document_lifecycle_lock, "acquire", acquire)
+    monkeypatch.setattr(ingestion_module.object_storage, "download_file", lambda _key: b"text")
+    monkeypatch.setattr(
+        ingestion_module.DocumentParser,
+        "parse",
+        lambda *_args: ([ParsedBlock(
+            "searchable text", "prose", metadata={"heading_path": "第一章 / 概述"}
+        )], {"file_type": "txt"}),
+    )
+    monkeypatch.setattr(ingestion_module.vector_store, "upsert_chunks", upsert)
+
+    await ingestion_module.IngestionService().ingest_document(
+        5, 8, 13, "objects/doc.txt", "doc.txt", "text/plain",
+        document_title="安全生产手册", folder_id=12, visibility=1,
+        document_created_at="2026-08-20T01:02:03Z",
+        document_updated_at="2026-08-21T04:05:06Z",
+    )
+
+    assert len(captured_chunks) == 1
+    metadata = captured_chunks[0].metadata
+    assert metadata["document_title"] == "安全生产手册"
+    assert metadata["folder_id"] == 12
+    assert metadata["visibility"] == 1
+    assert metadata["document_created_at"] == "2026-08-20T01:02:03Z"
+    assert metadata["document_updated_at"] == "2026-08-21T04:05:06Z"
+    assert metadata["heading_path"] == "第一章 / 概述"
+    assert metadata["ingested_at"]

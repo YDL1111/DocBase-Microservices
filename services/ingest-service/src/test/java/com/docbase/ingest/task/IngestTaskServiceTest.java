@@ -8,6 +8,7 @@ import com.docbase.ingest.task.mapper.ConsumedEventMapper;
 import com.docbase.ingest.task.mapper.IngestTaskMapper;
 import com.docbase.ingest.task.mapper.RagOutboxMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import java.time.LocalDateTime;
 
 @ExtendWith(MockitoExtension.class)
 class IngestTaskServiceTest {
@@ -63,6 +65,29 @@ class IngestTaskServiceTest {
         String sqlSet = ((UpdateWrapper<IngestTask>) wrapper.getValue()).getSqlSet();
         assertThat(sqlSet).contains("last_error", "next_retry_at", "status");
         assertThat(task.getLastError()).isNull();
+    }
+
+    @Test
+    void ragPayload_preservesDocumentRetrievalMetadataAcrossRetries() throws Exception {
+        IngestTask task = task(3L, IngestTaskStatus.PROCESSING, null);
+        task.setVersionId(9L);
+        task.setObjectKey("knowledge/1/doc.pdf");
+        task.setFileName("doc.pdf");
+        task.setContentType("application/pdf");
+        task.setDocumentTitle("安全生产手册");
+        task.setFolderId(12L);
+        task.setVisibility(1);
+        task.setDocumentCreatedAt(LocalDateTime.of(2026, 8, 20, 1, 2, 3));
+        task.setDocumentUpdatedAt(LocalDateTime.of(2026, 8, 21, 4, 5, 6));
+
+        JsonNode payload = new ObjectMapper().readTree(
+                service.buildRagEventPayload(task, "rag.document.ingest.requested", "event-1"));
+
+        assertThat(payload.get("documentTitle").asText()).isEqualTo("安全生产手册");
+        assertThat(payload.get("folderId").asLong()).isEqualTo(12L);
+        assertThat(payload.get("visibility").asInt()).isEqualTo(1);
+        assertThat(payload.get("documentCreatedAt").asText()).startsWith("2026-08-20T01:02:03");
+        assertThat(payload.get("schemaVersion").asInt()).isEqualTo(2);
     }
 
     private IngestTask task(Long id, IngestTaskStatus status, String error) {

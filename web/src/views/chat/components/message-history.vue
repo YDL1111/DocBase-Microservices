@@ -34,7 +34,10 @@ function isSafeSource(source: unknown): source is ChatSource {
   const value = source as Record<string, unknown>;
   return Number.isSafeInteger(value.document_id) && (value.document_id as number) > 0
     && (value.file_name === undefined || value.file_name === null || typeof value.file_name === "string")
-    && (value.page === undefined || value.page === null || (Number.isSafeInteger(value.page) && (value.page as number) > 0));
+    && (value.page === undefined || value.page === null || (Number.isSafeInteger(value.page) && (value.page as number) > 0))
+    && (value.sheet === undefined || value.sheet === null || typeof value.sheet === "string")
+    && (value.slide === undefined || value.slide === null || (Number.isSafeInteger(value.slide) && (value.slide as number) > 0))
+    && (value.heading_path === undefined || value.heading_path === null || typeof value.heading_path === "string");
 }
 
 function safeSources(value: string | null | undefined): ChatSource[] {
@@ -48,7 +51,13 @@ function safeSources(value: string | null | undefined): ChatSource[] {
 function messageSources(item: ChatViewMessage): ChatSource[] { return item.sources?.filter(isSafeSource) ?? safeSources(item.sourcesJson); }
 function sourceText(source: ChatSource): string {
   const name = source.file_name?.trim() || "文档";
-  return source.page ? `${name} · 第 ${source.page} 页` : name;
+  const locations = [
+    source.page ? `第 ${source.page} 页` : "",
+    source.sheet?.trim() ? `Sheet ${source.sheet.trim()}` : "",
+    source.slide ? `Slide ${source.slide}` : "",
+    source.heading_path?.trim() || ""
+  ].filter(Boolean);
+  return locations.length ? `${name} · ${locations.join(" · ")}` : name;
 }
 function toggleSources(messageId: number | string): void {
   const next = new Set(expandedSourceIds.value);

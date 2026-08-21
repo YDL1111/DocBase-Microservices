@@ -31,7 +31,7 @@ public record RagEvent(
         Instant occurredAt
 ) {
     /** Current schema version for RAG events. */
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 2;
 
     /** Event type constants - placeholder for future RAG implementation. */
     public static final String INGEST_REQUESTED = "rag.document.ingest.requested";

@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -105,6 +106,13 @@ public class IngestTaskService {
         task.setVersionId(event.versionId());
         task.setFileName(event.fileName());
         task.setContentType(event.contentType());
+        task.setDocumentTitle(event.documentTitle());
+        task.setFolderId(event.folderId());
+        task.setVisibility(event.visibility());
+        task.setDocumentCreatedAt(event.documentCreatedAt() == null ? null
+                : LocalDateTime.ofInstant(event.documentCreatedAt(), ZoneOffset.UTC));
+        task.setDocumentUpdatedAt(event.documentUpdatedAt() == null ? null
+                : LocalDateTime.ofInstant(event.documentUpdatedAt(), ZoneOffset.UTC));
         task.setStatus(IngestTaskStatus.PENDING.name());
         task.setAttemptCount(0);
         task.setCreatedBy(event.operatorId());
@@ -464,6 +472,13 @@ public class IngestTaskService {
             payload.setObjectKey(task.getObjectKey());
             payload.setFileName(task.getFileName() != null ? task.getFileName() : "");
             payload.setContentType(task.getContentType() != null ? task.getContentType() : "");
+            payload.setDocumentTitle(task.getDocumentTitle());
+            payload.setFolderId(task.getFolderId());
+            payload.setVisibility(task.getVisibility());
+            payload.setDocumentCreatedAt(task.getDocumentCreatedAt() == null ? null
+                    : task.getDocumentCreatedAt().toInstant(ZoneOffset.UTC).toString());
+            payload.setDocumentUpdatedAt(task.getDocumentUpdatedAt() == null ? null
+                    : task.getDocumentUpdatedAt().toInstant(ZoneOffset.UTC).toString());
             payload.setOperatorId(task.getCreatedBy());
             payload.setSchemaVersion(RagEvent.CURRENT_SCHEMA_VERSION);
             payload.setOccurredAt(Instant.now().toString());

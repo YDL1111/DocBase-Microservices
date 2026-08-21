@@ -68,7 +68,8 @@ public class RagChatStreamService {
     public Flux<ServerSentEvent<Object>> stream(
             String query,
             List<RagDtos.KnowledgeScope> knowledgeScopes,
-            Long sessionId) {
+            Long sessionId,
+            List<RagDtos.HistoryMessage> history) {
 
         List<RagDtos.KnowledgeScope> scopes = knowledgeScopes != null ? knowledgeScopes : List.of();
         Long compatibilityKnowledgeBaseId = scopes.size() == 1 ? scopes.get(0).knowledge_base_id() : null;
@@ -78,7 +79,8 @@ public class RagChatStreamService {
                 scopes,
                 compatibilityKnowledgeBaseId,
                 compatibilityVisibleIds,
-                sessionId != null ? String.valueOf(sessionId) : null
+                sessionId != null ? String.valueOf(sessionId) : null,
+                history != null ? history : List.of()
         );
 
         AtomicBoolean sourcesValidated = new AtomicBoolean(false);
@@ -116,6 +118,11 @@ public class RagChatStreamService {
                 });
     }
 
+    public Flux<ServerSentEvent<Object>> stream(
+            String query, List<RagDtos.KnowledgeScope> knowledgeScopes, Long sessionId) {
+        return stream(query, knowledgeScopes, sessionId, List.of());
+    }
+
     /** Backward-compatible single-knowledge-base adapter. */
     public Flux<ServerSentEvent<Object>> stream(
             String query, Long knowledgeBaseId, List<Long> visibleDocumentIds, Long sessionId) {
@@ -123,7 +130,7 @@ public class RagChatStreamService {
                 ? List.of()
                 : List.of(new RagDtos.KnowledgeScope(knowledgeBaseId,
                 visibleDocumentIds != null ? visibleDocumentIds : List.of()));
-        return stream(query, scopes, sessionId);
+        return stream(query, scopes, sessionId, List.of());
     }
 
     /**
@@ -220,7 +227,14 @@ public class RagChatStreamService {
                 filtered.add(new RagDtos.Source(
                         docId,
                         item.has("file_name") ? item.get("file_name").asText() : null,
-                        item.has("page") && !item.get("page").isNull() ? item.get("page").asInt() : null
+                        item.has("page") && !item.get("page").isNull() ? item.get("page").asInt() : null,
+                        item.has("sheet") && !item.get("sheet").isNull() ? item.get("sheet").asText() : null,
+                        item.has("slide") && !item.get("slide").isNull() ? item.get("slide").asInt() : null,
+                        item.has("heading_path") && !item.get("heading_path").isNull()
+                                ? item.get("heading_path").asText() : null,
+                        item.has("block_type") && !item.get("block_type").isNull()
+                                ? item.get("block_type").asText() : null,
+                        item.has("score") && item.get("score").isNumber() ? item.get("score").asDouble() : null
                 ));
             } else if (docId != -1) {
                 log.warn("RAG returned out-of-range source document_id={}; dropped for security", docId);

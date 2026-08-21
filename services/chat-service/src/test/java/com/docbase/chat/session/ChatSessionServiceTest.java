@@ -212,4 +212,24 @@ class ChatSessionServiceTest {
         assertThat(updated.getCompletedAt()).isNotNull();
         assertThat(updated.getCompletedAt()).isAfterOrEqualTo(updated.getCreatedAt());
     }
+
+    @Test
+    void recentContext_isBoundedChronologicalAndExcludesNonCompletedMessages() {
+        for (int index = 0; index < 14; index++) {
+            sessionService.saveUserMessage(user1Session, 1L, "question-" + index, "history-" + index);
+        }
+        ChatMessage streaming = sessionService.createAssistantPlaceholder(user1Session, 1L);
+        ChatMessage failed = sessionService.createAssistantPlaceholder(user1Session, 1L);
+        sessionService.completeAssistantMessage(failed.getId(), "failed answer", null,
+                ChatConstants.MESSAGE_STATUS_FAILED, "FAILED");
+
+        List<ChatMessage> history = sessionService.listRecentContextMessages(user1Session, 1L);
+
+        assertThat(history).hasSize(ChatConstants.RAG_HISTORY_MAX_MESSAGES);
+        assertThat(history).extracting(ChatMessage::getContent)
+                .containsExactlyElementsOf(java.util.stream.IntStream.range(2, 14)
+                        .mapToObj(index -> "question-" + index).toList());
+        assertThat(history).noneMatch(message -> message.getId().equals(streaming.getId())
+                || message.getId().equals(failed.getId()));
+    }
 }

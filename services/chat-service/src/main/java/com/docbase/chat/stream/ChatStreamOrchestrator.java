@@ -121,6 +121,12 @@ public class ChatStreamOrchestrator {
         }
 
         final Long sid = session.getId();
+        final List<RagDtos.HistoryMessage> history = sessionService
+                .listRecentContextMessages(sid, userId).stream()
+                .map(message -> new RagDtos.HistoryMessage(
+                        message.getRole() == ChatConstants.MESSAGE_ROLE_USER ? "user" : "assistant",
+                        message.getContent()))
+                .toList();
 
         // 3. Compute visible document IDs from knowledge-service (uses current JWT identity).
         final List<RagDtos.KnowledgeScope> knowledgeScopes;
@@ -168,7 +174,7 @@ public class ChatStreamOrchestrator {
         // 6. Acquire concurrency lock, connect to RAG, persist result, release lock — all terminal
         //    paths release the lock.
         Flux<ServerSentEvent<Object>> body = streamWithLock(sid, assistantMessageId, userId,
-                question, knowledgeScopes);
+                question, knowledgeScopes, history);
 
         return header.concatWith(body);
     }
@@ -183,7 +189,8 @@ public class ChatStreamOrchestrator {
 
     private Flux<ServerSentEvent<Object>> streamWithLock(
             Long sessionId, Long assistantMessageId, Long userId,
-            String question, List<RagDtos.KnowledgeScope> knowledgeScopes) {
+            String question, List<RagDtos.KnowledgeScope> knowledgeScopes,
+            List<RagDtos.HistoryMessage> history) {
 
         String token = concurrencyLock.tryAcquire(userId);
         if (token == null) {
@@ -199,13 +206,8 @@ public class ChatStreamOrchestrator {
         final AtomicBoolean doneReceived = new AtomicBoolean(false);
         final AtomicBoolean errorReceived = new AtomicBoolean(false);
 
-        Flux<ServerSentEvent<Object>> ragFlux = knowledgeScopes.size() <= 1
-                ? ragStreamService.stream(
-                        question,
-                        knowledgeScopes.isEmpty() ? null : knowledgeScopes.get(0).knowledge_base_id(),
-                        knowledgeScopes.isEmpty() ? List.of() : knowledgeScopes.get(0).visible_document_ids(),
-                        sessionId)
-                : ragStreamService.stream(question, knowledgeScopes, sessionId);
+        Flux<ServerSentEvent<Object>> ragFlux = ragStreamService.stream(
+                question, knowledgeScopes, sessionId, history);
         return ragFlux
                 .doOnNext(event -> {
                     String evt = event.event();

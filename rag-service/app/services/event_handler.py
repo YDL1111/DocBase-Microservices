@@ -89,6 +89,11 @@ class EventHandler:
                 object_key=event.object_key,
                 file_name=event.file_name or "unknown",
                 content_type=event.content_type,
+                document_title=event.document_title,
+                folder_id=event.folder_id,
+                visibility=event.visibility,
+                document_created_at=event.document_created_at,
+                document_updated_at=event.document_updated_at,
             )
 
             # Update document status

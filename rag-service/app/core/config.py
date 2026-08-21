@@ -67,7 +67,13 @@ class Settings(BaseSettings):
     RERANK_TOP_K: int = 8
     MMR_LAMBDA: float = 0.7
     NEAR_DUPLICATE_THRESHOLD: float = 0.92
+    MIN_RELEVANCE_SCORE: float = 0.35
     MAX_CONTEXT_LENGTH: int = 6000
+    MAX_CONTEXT_TOKENS: int = 4000
+    QUERY_REWRITE_ENABLED: bool = True
+    QUERY_REWRITE_TIMEOUT_SECONDS: float = 8.0
+    HISTORY_MAX_MESSAGES: int = 12
+    HISTORY_MAX_CHARS: int = 12000
 
     # Internal API Security
     INTERNAL_API_KEY: str = "replace-me-internal-key"

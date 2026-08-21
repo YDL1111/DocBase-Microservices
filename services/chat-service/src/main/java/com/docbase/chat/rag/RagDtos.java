@@ -18,8 +18,11 @@ public final class RagDtos {
             List<KnowledgeScope> knowledge_scopes,
             Long knowledge_base_id,
             List<Long> visible_document_ids,
-            String session_id
+            String session_id,
+            List<HistoryMessage> history
     ) {}
+
+    public record HistoryMessage(String role, String content) {}
 
     public record KnowledgeScope(
             Long knowledge_base_id,
@@ -41,7 +44,10 @@ public final class RagDtos {
     public record RagSseEvent(String type, Object data) {}
 
     /** Source entry returned by RAG. */
-    public record Source(Long document_id, String file_name, Integer page) {}
+    public record Source(
+            Long document_id, String file_name, Integer page, String sheet, Integer slide,
+            String heading_path, String block_type, Double score
+    ) {}
 
     // Event type constants (from rag-service)
     public static final String EVT_METADATA = "metadata";
