@@ -2,6 +2,8 @@
 Embedding service using BAAI/bge-m3.
 """
 import functools
+import threading
+import time
 from typing import List
 
 from app.core.config import settings
@@ -11,12 +13,18 @@ logger = get_logger(__name__)
 
 # Module-level cache for the embedding model
 _embedding_model = None
+_embedding_model_lock = threading.Lock()
 
 
 def get_embedding_model():
     """Lazy-load and cache the embedding model."""
     global _embedding_model
-    if _embedding_model is None:
+    if _embedding_model is not None:
+        return _embedding_model
+    with _embedding_model_lock:
+        if _embedding_model is not None:
+            return _embedding_model
+        started_at = time.perf_counter()
         logger.info(f"Loading embedding model: {settings.HF_EMBEDDING_MODEL}")
         from langchain_huggingface import HuggingFaceEmbeddings
 
@@ -30,7 +38,11 @@ def get_embedding_model():
                 "normalize_embeddings": settings.HF_NORMALIZE_EMBEDDINGS,
             },
         )
-        logger.info("Embedding model loaded successfully")
+        logger.info(
+            "Embedding model loaded model=%s load_ms=%.1f",
+            settings.HF_EMBEDDING_MODEL,
+            (time.perf_counter() - started_at) * 1000,
+        )
     return _embedding_model
 
 
@@ -54,13 +66,24 @@ class EmbeddingService:
         return self.model.embed_documents(texts)
 
     def embed_query(self, text: str) -> List[float]:
-        """Generate embedding for a single query."""
-        return self.model.embed_query(text)
+        """Generate an embedding, reusing exact repeated queries."""
+        return list(self._embed_query_cached(text))
 
     @functools.lru_cache(maxsize=1024)
-    def embed_query_cached(self, text: str) -> tuple:
-        """Cached embedding for repeated queries. Returns tuple for hashability."""
-        return tuple(self.embed_query(text))
+    def _embed_query_cached(self, text: str) -> tuple[float, ...]:
+        return tuple(self.model.embed_query(text))
+
+    def warmup(self) -> None:
+        """Load BGE-M3 and initialize its CPU inference kernels before serving traffic."""
+        started_at = time.perf_counter()
+        vector = self.embed_query("DocBase embedding warmup")
+        if not vector:
+            raise RuntimeError("Embedding warmup returned an empty vector")
+        logger.info(
+            "Embedding model warmup completed dimensions=%d warmup_ms=%.1f",
+            len(vector),
+            (time.perf_counter() - started_at) * 1000,
+        )
 
 
 # Singleton instance

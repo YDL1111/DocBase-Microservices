@@ -15,9 +15,15 @@ public final class RagDtos {
     /** Request body for POST /internal/v1/rag/chat/stream */
     public record ChatRequest(
             String query,
-            long knowledge_base_id,
+            List<KnowledgeScope> knowledge_scopes,
+            Long knowledge_base_id,
             List<Long> visible_document_ids,
             String session_id
+    ) {}
+
+    public record KnowledgeScope(
+            Long knowledge_base_id,
+            List<Long> visible_document_ids
     ) {}
 
     /** A normalized SSE event emitted by chat-service to the client. */

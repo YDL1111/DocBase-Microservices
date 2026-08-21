@@ -4,8 +4,8 @@
 
 - 运行端口：`8090`
 - 健康检查：`GET /health`
-- 模型供应商与模型：保持旧项目现有 DeepSeek 配置，通过 `DEEPSEEK_API_KEY` 和
-  `DEEPSEEK_MODEL` 环境变量注入；仓库不保存真实值。
+- 聊天模型：通过 `CHAT_API_KEY`、`CHAT_BASE_URL` 和 `CHAT_MODEL` 接入任意
+  OpenAI-compatible 服务；仓库不保存真实值。
 - Embedding：固定 `BAAI/bge-m3`。
 - HuggingFace 缓存：后续通过只读/命名卷挂载本机已有缓存，不在此阶段下载模型。
 - 向量库：保留 Chroma，不引入 Milvus。

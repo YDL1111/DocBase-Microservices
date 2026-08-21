@@ -15,12 +15,14 @@ import com.docbase.knowledge.document.domain.KnowledgeDocumentVersion;
 import com.docbase.knowledge.event.OutboxService;
 import com.docbase.knowledge.folder.mapper.KnowledgeFolderMapper;
 import com.docbase.knowledge.permission.KnowledgePermissionService;
+import com.docbase.knowledge.storage.KnowledgeObjectStorageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.io.InputStream;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,6 +38,7 @@ public class KnowledgeDocumentService {
     private final KnowledgeUploadRequestMapper uploadRequestMapper;
     private final KnowledgePermissionService permissionService;
     private final OutboxService outboxService;
+    private final KnowledgeObjectStorageService objectStorageService;
 
     public KnowledgeDocumentService(KnowledgeDocumentMapper documentMapper,
                                     KnowledgeFolderMapper folderMapper,
@@ -43,7 +46,8 @@ public class KnowledgeDocumentService {
                                     KnowledgeDocumentAclMapper documentAclMapper,
                                     KnowledgeUploadRequestMapper uploadRequestMapper,
                                     KnowledgePermissionService permissionService,
-                                    OutboxService outboxService) {
+                                    OutboxService outboxService,
+                                    KnowledgeObjectStorageService objectStorageService) {
         this.documentMapper = documentMapper;
         this.folderMapper = folderMapper;
         this.documentVersionMapper = documentVersionMapper;
@@ -51,6 +55,7 @@ public class KnowledgeDocumentService {
         this.uploadRequestMapper = uploadRequestMapper;
         this.permissionService = permissionService;
         this.outboxService = outboxService;
+        this.objectStorageService = objectStorageService;
     }
 
     /**
@@ -80,6 +85,15 @@ public class KnowledgeDocumentService {
         return doc;
     }
 
+    /** Returns an authorized stream without exposing MinIO coordinates to the browser. */
+    public DocumentContent openContent(Long documentId, Long userId, boolean isAdmin) {
+        KnowledgeDocument document = getById(documentId, userId, isAdmin);
+        if (document.getObjectKey() == null || document.getObjectKey().isBlank()) {
+            throw new BusinessException("DOCUMENT_CONTENT_NOT_FOUND", "Document content is unavailable");
+        }
+        return new DocumentContent(document, objectStorageService.openObject(document.getObjectKey()));
+    }
+
     /**
      * Registers document metadata (without file parsing).
      * Requires EDITOR or higher (or admin:all).
@@ -89,7 +103,8 @@ public class KnowledgeDocumentService {
     @Transactional
     public Long registerDocument(Long knowledgeBaseId, KnowledgeDocument document, Long userId, boolean isAdmin) {
         validateUploadContext(knowledgeBaseId, document.getFolderId(), userId, isAdmin);
-        return registerDocumentInternal(knowledgeBaseId, document, null, null, userId);
+        return registerDocumentInternal(knowledgeBaseId, document, null, null, userId,
+                KnowledgeDocumentConstants.STATUS_DRAFT);
     }
 
     /**
@@ -100,7 +115,10 @@ public class KnowledgeDocumentService {
     public Long registerUploadedDocument(Long knowledgeBaseId, KnowledgeDocument document, Long uploadRequestId,
                                          String leaseToken, Long userId, boolean isAdmin) {
         validateUploadContext(knowledgeBaseId, document.getFolderId(), userId, isAdmin);
-        return registerDocumentInternal(knowledgeBaseId, document, uploadRequestId, leaseToken, userId);
+        int initialStatus = Integer.valueOf(KnowledgeDocumentConstants.STATUS_PUBLISHED).equals(document.getStatus())
+                ? KnowledgeDocumentConstants.STATUS_PUBLISHED : KnowledgeDocumentConstants.STATUS_DRAFT;
+        return registerDocumentInternal(knowledgeBaseId, document, uploadRequestId, leaseToken, userId,
+                initialStatus);
     }
 
     /** Validate all resource-level checks before object storage, and repeat them at registration time. */
@@ -113,7 +131,7 @@ public class KnowledgeDocumentService {
     }
 
     private Long registerDocumentInternal(Long knowledgeBaseId, KnowledgeDocument document, Long uploadRequestId,
-                                          String leaseToken, Long userId) {
+                                          String leaseToken, Long userId, int initialStatus) {
 
         document.setId(null);
         document.setKnowledgeBaseId(knowledgeBaseId);
@@ -121,7 +139,7 @@ public class KnowledgeDocumentService {
         document.setUpdatedBy(userId);
         document.setVersion(1);
         document.setIngestStatus(1); // PENDING
-        document.setStatus(1); // DRAFT
+        document.setStatus(initialStatus);
         document.setVisibility(document.getVisibility() != null ? document.getVisibility() : 1);
         document.setDeleted(0);
         documentMapper.insert(document);
@@ -215,6 +233,55 @@ public class KnowledgeDocumentService {
         }
         existing.setUpdatedBy(userId);
         documentMapper.updateById(existing);
+    }
+
+    /** Creates a new logical version for the same object and emits a dedicated re-ingest event. */
+    @Transactional
+    public void reingest(Long documentId, Long userId, boolean isAdmin) {
+        // Allocate the next version under a row lock so concurrent tabs/instances cannot
+        // create the same (document_id, version) pair or enqueue duplicate work.
+        KnowledgeDocument existing = documentMapper.selectActiveByIdForUpdate(documentId);
+        if (existing == null) {
+            throw new BusinessException("DOCUMENT_NOT_FOUND", "Document not found");
+        }
+        permissionService.requirePermission(existing.getKnowledgeBaseId(), userId, isAdmin, 3, "Editor permission required");
+        if (existing.getIngestStatus() != null
+                && (existing.getIngestStatus() == KnowledgeDocumentConstants.INGEST_STATUS_PENDING
+                || existing.getIngestStatus() == KnowledgeDocumentConstants.INGEST_STATUS_PROCESSING)) {
+            throw new BusinessException("DOCUMENT_INGEST_ACTIVE", "Document is already being ingested");
+        }
+
+        int nextVersion = (existing.getVersion() == null ? 0 : existing.getVersion()) + 1;
+        KnowledgeDocumentVersion version = new KnowledgeDocumentVersion();
+        version.setDocumentId(existing.getId());
+        version.setVersion(nextVersion);
+        version.setOriginalFilename(existing.getOriginalFilename());
+        version.setObjectKey(existing.getObjectKey());
+        version.setContentType(existing.getContentType());
+        version.setFileSize(existing.getFileSize());
+        version.setChecksum(existing.getChecksum());
+        version.setIngestStatus(KnowledgeDocumentConstants.INGEST_STATUS_PENDING);
+        version.setCreatedBy(userId);
+        version.setDeleted(0);
+        documentVersionMapper.insert(version);
+
+        existing.setVersion(nextVersion);
+        existing.setIngestStatus(KnowledgeDocumentConstants.INGEST_STATUS_PENDING);
+        existing.setUpdatedBy(userId);
+        documentMapper.updateById(existing);
+
+        outboxService.writeEvent(createKnowledgeEvent(
+                KnowledgeEvent.REINGEST_REQUESTED,
+                "document",
+                documentId.toString(),
+                existing.getKnowledgeBaseId(),
+                documentId,
+                version.getId(),
+                existing.getObjectKey(),
+                existing.getOriginalFilename(),
+                existing.getContentType(),
+                userId
+        ));
     }
 
     /**
@@ -355,4 +422,6 @@ public class KnowledgeDocumentService {
             throw new BusinessException("FOLDER_NOT_IN_BASE", "Folder does not belong to this knowledge base");
         }
     }
+
+    public record DocumentContent(KnowledgeDocument document, InputStream inputStream) {}
 }

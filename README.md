@@ -70,7 +70,7 @@ Copy-Item .env.example .env
 ```
 
 `.env` 已被忽略，禁止复制旧仓库中的真实 API Key、数据库密码或 JWT 私钥到受版本控制文件。
-DeepSeek 模型名称继续使用旧项目当前配置，Embedding 固定为 `BAAI/bge-m3`，不下载新模型；
+聊天模型通过 `CHAT_API_KEY`、`CHAT_BASE_URL` 和 `CHAT_MODEL` 接入任意 OpenAI-compatible 服务，Embedding 固定为本地 `BAAI/bge-m3`；
 后续 RAG 容器复用本机已有 HuggingFace 缓存。
 
 ## 启动命令
@@ -218,7 +218,7 @@ Outbox 事件。详见 [Knowledge API 文档](docs/api/knowledge.md) 和
 1. **IAM（已完成）**：迁移 `sys_*`、登录态、非对称 JWT 和权限缓存。
 2. **Knowledge（已完成）**：迁移知识库、目录、文档元数据、成员、权限和 Outbox。
 3. **Ingest（已完成）**：实现 Outbox 发布、RabbitMQ 幂等消费、任务状态机、状态反馈事件。
-4. RAG：迁移现有 FastAPI/Chroma/DeepSeek/bge-m3 链路并接入 Nacos。
+4. RAG：迁移现有 FastAPI/Chroma/OpenAI-compatible Chat/BGE-M3 链路并接入 Nacos。
 5. Chat：迁移会话、`visible_doc_ids` 权限下沉与 WebClient SSE。
 6. 前端与 Agent：复用 Vue 页面，最后迁移管理员 Agent 工具。
 

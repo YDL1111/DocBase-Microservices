@@ -9,7 +9,7 @@ import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import type { FormInstance, FormRules } from "element-plus";
 import { ElMessageBox } from "element-plus";
-import { Plus, Edit, Delete } from "@element-plus/icons-vue";
+import { Plus, Edit, Delete, View } from "@element-plus/icons-vue";
 import { listKnowledgeBases, createKnowledgeBase, updateKnowledgeBase, deleteKnowledgeBase } from "@/api/knowledge";
 import { useKnowledgeStoreHook } from "@/store/modules/knowledge";
 import { message } from "@/utils/message";
@@ -170,13 +170,7 @@ onMounted(() => {
       stripe
       style="width: 100%"
     >
-      <el-table-column prop="name" label="名称" min-width="180">
-        <template #default="{ row }">
-          <el-link type="primary" @click="goToDetail(row)">
-            {{ row.name }}
-          </el-link>
-        </template>
-      </el-table-column>
+      <el-table-column prop="name" label="名称" min-width="180" />
       <el-table-column prop="description" label="描述" min-width="250" show-overflow-tooltip />
       <el-table-column prop="visibility" label="可见性" width="100">
         <template #default="{ row }">
@@ -184,8 +178,17 @@ onMounted(() => {
         </template>
       </el-table-column>
       <el-table-column prop="createdAt" label="创建时间" width="180" />
-      <el-table-column label="操作" width="180" fixed="right">
+      <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
+          <el-button
+            v-auth="'knowledge:base:list'"
+            link
+            type="primary"
+            :icon="View"
+            @click="goToDetail(row)"
+          >
+            查看详情
+          </el-button>
           <el-button
             v-auth="'knowledge:base:update'"
             link

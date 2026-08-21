@@ -7,6 +7,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+
 /** Coordinates validation, object storage, database registration and compensation for multipart uploads. */
 @Service
 public class KnowledgeDocumentUploadService {
@@ -27,11 +32,12 @@ public class KnowledgeDocumentUploadService {
     }
 
     public Long upload(Long knowledgeBaseId, MultipartFile file, String title, Long folderId, Integer visibility,
-                       String clientRequestId, Long userId, boolean isAdmin) {
+                       boolean publishForChat, String clientRequestId, Long userId, boolean isAdmin) {
         DocumentUploadValidator.UploadMetadata metadata = validator.validateMetadata(
                 file, title, folderId, visibility, clientRequestId, knowledgeBaseId);
         documentService.validateUploadContext(knowledgeBaseId, metadata.folderId(), userId, isAdmin);
-        DocumentUploadValidator.ValidatedUpload validated = validator.completeWithChecksum(file, metadata);
+        DocumentUploadValidator.ValidatedUpload validated = withPublishPreference(
+                validator.completeWithChecksum(file, metadata), publishForChat);
 
         KnowledgeUploadRequestService.Reservation reservation = uploadRequestService.reserve(knowledgeBaseId, userId, validated);
         if (reservation.alreadyCompleted()) {
@@ -62,6 +68,7 @@ public class KnowledgeDocumentUploadService {
         document.setFileSize(validated.fileSize());
         document.setChecksum(validated.checksum());
         document.setVisibility(validated.visibility());
+        document.setStatus(publishForChat ? 2 : 1);
         try {
             return documentService.registerUploadedDocument(knowledgeBaseId, document, reservation.request().getId(), leaseToken, userId, isAdmin);
         } catch (RuntimeException exception) {
@@ -69,6 +76,21 @@ public class KnowledgeDocumentUploadService {
             releaseLeaseBestEffort(reservation.request().getId(), leaseToken, exception);
             throw exception;
         }
+    }
+
+    private DocumentUploadValidator.ValidatedUpload withPublishPreference(
+            DocumentUploadValidator.ValidatedUpload upload, boolean publishForChat) {
+        String fingerprint;
+        try {
+            fingerprint = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest((upload.fingerprint() + "\n" + publishForChat)
+                            .getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is required by the JVM", exception);
+        }
+        return new DocumentUploadValidator.ValidatedUpload(upload.title(), upload.folderId(), upload.visibility(),
+                upload.originalFilename(), upload.safeFilename(), upload.contentType(), upload.fileSize(),
+                upload.checksum(), upload.clientRequestId(), upload.objectKey(), fingerprint);
     }
 
     private void releaseLeaseBestEffort(Long requestId, String leaseToken, RuntimeException originalException) {

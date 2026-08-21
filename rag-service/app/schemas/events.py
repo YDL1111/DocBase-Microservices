@@ -1,7 +1,7 @@
 """
 Event schemas for RAG service messaging.
 """
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 
@@ -42,11 +42,18 @@ class RagResultEvent(BaseModel):
     trace_id: Optional[str] = None
 
 
+class KnowledgeScope(BaseModel):
+    knowledge_base_id: int
+    visible_document_ids: list[int]
+
+
 class ChatRequest(BaseModel):
     """Internal chat request with visible document filtering."""
     query: str
-    knowledge_base_id: int
-    visible_document_ids: list[int]
+    knowledge_scopes: list[KnowledgeScope] = Field(default_factory=list)
+    # Backward-compatible single-knowledge-base fields.
+    knowledge_base_id: Optional[int] = None
+    visible_document_ids: list[int] = Field(default_factory=list)
     session_id: Optional[str] = None
 
 

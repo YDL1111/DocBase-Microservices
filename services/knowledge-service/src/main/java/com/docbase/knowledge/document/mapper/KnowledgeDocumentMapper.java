@@ -3,9 +3,14 @@ package com.docbase.knowledge.document.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.docbase.knowledge.document.domain.KnowledgeDocument;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 public interface KnowledgeDocumentMapper extends BaseMapper<KnowledgeDocument> {
+
+    /** Locks the active document row while a new ingest version is allocated. */
+    @Select("SELECT * FROM knowledge_document WHERE id = #{id} AND deleted = 0 FOR UPDATE")
+    KnowledgeDocument selectActiveByIdForUpdate(@Param("id") Long id);
 
     /**
      * Soft delete all documents of a knowledge base.

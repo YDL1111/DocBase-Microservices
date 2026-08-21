@@ -8,7 +8,7 @@ const STREAM_PATH = "/api/ai/chat/stream";
 
 export interface ChatStreamRequest {
   sessionId: number | null;
-  knowledgeBaseId: number | null;
+  knowledgeBaseIds: number[];
   question: string;
   clientRequestId: string;
 }
@@ -110,8 +110,11 @@ function validateRequest(request: ChatStreamRequest): void {
     throw new RangeError("question must contain 1 to 4000 characters");
   }
   if (request.sessionId !== null && !isPositiveSafeInteger(request.sessionId)) throw new RangeError("sessionId must be a positive safe integer or null");
-  if (request.knowledgeBaseId !== null && !isPositiveSafeInteger(request.knowledgeBaseId)) throw new RangeError("knowledgeBaseId must be a positive safe integer or null");
-  if (request.sessionId === null && request.knowledgeBaseId === null) throw new RangeError("knowledgeBaseId is required for a new session");
+  if (!Array.isArray(request.knowledgeBaseIds) || request.knowledgeBaseIds.length > 20
+    || request.knowledgeBaseIds.some(id => !isPositiveSafeInteger(id))
+    || new Set(request.knowledgeBaseIds).size !== request.knowledgeBaseIds.length) {
+    throw new RangeError("knowledgeBaseIds must contain at most 20 unique positive safe integers");
+  }
   if (typeof request.clientRequestId !== "string" || request.clientRequestId.trim().length === 0) throw new RangeError("clientRequestId is required");
 }
 
@@ -140,7 +143,7 @@ async function openStream(request: ChatStreamRequest, signal: AbortSignal | unde
       },
       body: JSON.stringify({
         sessionId: request.sessionId,
-        knowledgeBaseId: request.knowledgeBaseId,
+        knowledgeBaseIds: request.knowledgeBaseIds,
         question: request.question,
         clientRequestId: request.clientRequestId
       })

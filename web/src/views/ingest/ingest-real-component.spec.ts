@@ -398,6 +398,24 @@ describe("P0-2: detail.vue 异步请求隔离", () => {
     expect(router.currentRoute.value.path).toBe("/home");
     wrapper.unmount();
   });
+
+  it("成功任务按北京时间显示且不展示历史错误", async () => {
+    const succeeded = makeTask(1, "SUCCEEDED");
+    succeeded.createdAt = "2026-08-19T16:10:42";
+    succeeded.startedAt = "2026-08-20T02:28:22";
+    succeeded.finishedAt = "2026-08-20T02:28:58";
+    succeeded.lastError = "Unknown error";
+    getIngestTaskMock.mockResolvedValueOnce(succeeded);
+    const router = detailRouter();
+    const wrapper = mount(detailVue, { global: { plugins: [router, pinia, ElementPlus] } });
+    await router.push("/ingest/tasks/1");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("2026-08-20 00:10:42");
+    expect(wrapper.text()).toContain("2026-08-20 10:28:22");
+    expect(wrapper.text()).toContain("2026-08-20 10:28:58");
+    expect(wrapper.text()).not.toContain("Unknown error");
+  });
 });
 
 // ========================= P0-3: deferred confirm 只操作 A =========================

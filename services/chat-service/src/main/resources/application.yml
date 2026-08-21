@@ -62,7 +62,7 @@ jwt:
 docbase:
   rag:
     base-url: ${RAG_BASE_URL:http://rag-service:8090}
-    model: ${DEEPSEEK_MODEL:keep-existing-deepseek-model}
+    model: ${CHAT_MODEL:gpt-4o-mini}
     embedding-model: BAAI/bge-m3
     connect-timeout: ${CHAT_RAG_CONNECT_TIMEOUT:5s}
     idle-timeout: ${CHAT_RAG_IDLE_TIMEOUT:120s}

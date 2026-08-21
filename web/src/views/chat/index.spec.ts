@@ -3,13 +3,14 @@ import { mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 import authDirective from "@/directive/permission";
 
-const { listSessions, listMessages, createSession, deleteSession, confirm, streamChat, messages, hasPermission } = vi.hoisted(() => ({
-  listSessions: vi.fn(), listMessages: vi.fn(), createSession: vi.fn(), deleteSession: vi.fn(), confirm: vi.fn(),
+const { listSessions, listMessages, createSession, deleteSession, deleteMessage, replaceKnowledgeBases, listKnowledgeBases, confirm, streamChat, messages, hasPermission } = vi.hoisted(() => ({
+  listSessions: vi.fn(), listMessages: vi.fn(), createSession: vi.fn(), deleteSession: vi.fn(), deleteMessage: vi.fn(), confirm: vi.fn(),
+  replaceKnowledgeBases: vi.fn(), listKnowledgeBases: vi.fn(),
   streamChat: vi.fn(),
   messages: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }, hasPermission: vi.fn()
 }));
-vi.mock("@/api/chat", () => ({ listChatSessions: (...args: unknown[]) => listSessions(...args), listChatMessages: (...args: unknown[]) => listMessages(...args), createChatSession: (...args: unknown[]) => createSession(...args), deleteChatSession: (...args: unknown[]) => deleteSession(...args) }));
-vi.mock("@/api/knowledge", () => ({ listKnowledgeBases: vi.fn() }));
+vi.mock("@/api/chat", () => ({ listChatSessions: (...args: unknown[]) => listSessions(...args), listChatMessages: (...args: unknown[]) => listMessages(...args), createChatSession: (...args: unknown[]) => createSession(...args), deleteChatSession: (...args: unknown[]) => deleteSession(...args), deleteChatMessage: (...args: unknown[]) => deleteMessage(...args), replaceChatSessionKnowledgeBases: (...args: unknown[]) => replaceKnowledgeBases(...args) }));
+vi.mock("@/api/knowledge", () => ({ listKnowledgeBases: (...args: unknown[]) => listKnowledgeBases(...args) }));
 vi.mock("@/api/chat-stream", () => ({
   streamChat: (...args: unknown[]) => streamChat(...args),
   ChatStreamClientError: class ChatStreamClientError extends Error { constructor(readonly code: string) { super(code); } }
@@ -21,20 +22,62 @@ vi.mock("@/store/modules/user", () => ({ useUserStoreHook: () => ({ hasPermissio
 import ChatPage from "./index.vue";
 
 const SessionList = { name: "SessionList", props: ["sessions", "selectedSessionId", "loading", "deletingSessionId", "lockedSessionId", "current", "size", "total"], emits: ["create", "select", "delete", "refresh", "pageChange", "sizeChange"], template: "<div><slot /></div>" };
-const MessageHistory = { name: "MessageHistory", props: ["messages", "loading", "selectedSessionId", "streaming", "syncing", "cancelling", "draining", "canAcceptInput", "attempt"], emits: ["refresh", "retry", "recheck"], template: "<div />" };
+const MessageHistory = { name: "MessageHistory", props: ["messages", "loading", "selectedSessionId", "streaming", "syncing", "cancelling", "draining", "canAcceptInput", "deletingMessageId", "attempt"], emits: ["refresh", "retry", "recheck", "copy", "delete", "resend"], template: "<div />" };
 const ChatComposer = { name: "ChatComposer", props: ["modelValue", "streaming", "canSend", "maxLength"], emits: ["send", "stop", "update:modelValue"], template: "<div />" };
 const CreateSessionDialog = { name: "CreateSessionDialog", props: ["modelValue", "knowledgeBases", "loadingKnowledgeBases", "creating"], emits: ["create", "opened", "update:modelValue"], template: "<div />" };
+const KnowledgeBindingDialog = { name: "KnowledgeBindingDialog", props: ["modelValue", "knowledgeBases", "selectedIds", "loading", "saving"], emits: ["save", "update:modelValue"], template: "<div />" };
 function result(records: any[] = []) { return { records, total: records.length, current: 1, size: 20, pages: 1 }; }
 async function flush() { await nextTick(); await Promise.resolve(); await nextTick(); }
-function mountPage() { return mount(ChatPage, { global: { stubs: { SessionList, MessageHistory, ChatComposer, CreateSessionDialog }, directives: { auth: { mounted() {}, updated() {} } } } }); }
+function mountPage() { return mount(ChatPage, { global: { stubs: { SessionList, MessageHistory, ChatComposer, CreateSessionDialog, KnowledgeBindingDialog }, directives: { auth: { mounted() {}, updated() {} } } } }); }
 
 describe("chat history page", () => {
-  beforeEach(() => { vi.clearAllMocks(); streamChat.mockReset(); hasPermission.mockReturnValue(true); listSessions.mockResolvedValue(result([{ id: 1, title: "A", knowledgeBaseId: 7, updatedAt: "t", userId: 1, status: 1, createdAt: "t" }])); });
+  beforeEach(() => { vi.clearAllMocks(); streamChat.mockReset(); hasPermission.mockReturnValue(true); listKnowledgeBases.mockResolvedValue(result([{ id: 7, name: "知识库 A" }, { id: 8, name: "知识库 B" }])); listSessions.mockResolvedValue(result([{ id: 1, title: "A", knowledgeBaseId: 7, knowledgeBaseIds: [7], updatedAt: "t", userId: 1, status: 1, createdAt: "t" }])); });
+
+  it("allows the header knowledge button to replace one binding with multiple knowledge bases", async () => {
+    listMessages.mockResolvedValue([]);
+    replaceKnowledgeBases.mockResolvedValue({ id: 1, title: "A", knowledgeBaseId: 7, knowledgeBaseIds: [7, 8], updatedAt: "t", userId: 1, status: 1, createdAt: "t" });
+    const wrapper = mountPage(); await flush();
+    wrapper.findComponent(SessionList).vm.$emit("select", 1); await flush();
+    await wrapper.find(".knowledge-status").trigger("click"); await flush();
+    const dialog = wrapper.findComponent(KnowledgeBindingDialog);
+    expect(dialog.props("modelValue")).toBe(true);
+    dialog.vm.$emit("save", [7, 8]); await flush();
+    expect(replaceKnowledgeBases).toHaveBeenCalledWith(1, [7, 8]);
+    expect(wrapper.text()).toContain("2 个知识库");
+  });
+
+  it("does not open a stale binding dialog when the selected session changes during knowledge loading", async () => {
+    let resolveKnowledge!: (value: ReturnType<typeof result>) => void;
+    listKnowledgeBases.mockReset().mockImplementationOnce(() => new Promise(resolve => { resolveKnowledge = resolve; }));
+    listSessions.mockResolvedValue(result([
+      { id: 1, title: "A", knowledgeBaseId: 7, knowledgeBaseIds: [7], updatedAt: "t", userId: 1, status: 1, createdAt: "t" },
+      { id: 2, title: "B", knowledgeBaseId: 8, knowledgeBaseIds: [8], updatedAt: "t", userId: 1, status: 1, createdAt: "t" }
+    ]));
+    listMessages.mockResolvedValue([]);
+    const wrapper = mountPage(); await flush();
+    const list = wrapper.findComponent(SessionList);
+    list.vm.$emit("select", 1); await flush();
+    await wrapper.find(".knowledge-status").trigger("click");
+    list.vm.$emit("select", 2); await flush();
+    resolveKnowledge(result([{ id: 7, name: "知识库 A" }, { id: 8, name: "知识库 B" }]));
+    await flush();
+    expect(wrapper.findComponent(MessageHistory).props("selectedSessionId")).toBe(2);
+    expect(wrapper.findComponent(KnowledgeBindingDialog).props("modelValue")).toBe(false);
+  });
 
   it("renders sessions returned by the real page request", async () => {
     const wrapper = mountPage(); await flush();
     expect(wrapper.findComponent(SessionList).props("sessions")).toHaveLength(1);
     expect(listSessions).toHaveBeenCalledWith(1, 20);
+  });
+
+  it("enables the composer for a valid general chat session without a knowledge base", async () => {
+    listSessions.mockResolvedValue(result([{ id: 2, title: "General", knowledgeBaseId: null, updatedAt: "t", userId: 1, status: 1, createdAt: "t" }]));
+    listMessages.mockResolvedValue([]);
+    const wrapper = mountPage(); await flush();
+    wrapper.findComponent(SessionList).vm.$emit("select", 2); await flush();
+    expect(wrapper.findComponent(ChatComposer).props("canSend")).toBe(true);
+    expect(wrapper.text()).toContain("通用 AI 对话");
   });
 
   it("prevents duplicate create submission and selects the created session", async () => {
@@ -155,6 +198,78 @@ describe("chat history page", () => {
     list.vm.$emit("select", 2); await flush();
     approve(); await flush(); await flush();
     expect(deleteSession).toHaveBeenCalledWith(1);
+  });
+
+  it("does not let an older session-list response resurrect a deleted session", async () => {
+    let resolveStale!: (value: ReturnType<typeof result>) => void;
+    listSessions.mockReset()
+      .mockResolvedValueOnce(result([{ id: 1, title: "A", knowledgeBaseId: null, updatedAt: "t", userId: 1, status: 1, createdAt: "t" }]))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveStale = resolve; }))
+      .mockResolvedValueOnce(result([]));
+    confirm.mockResolvedValue(undefined);
+    deleteSession.mockResolvedValue(undefined);
+    const wrapper = mountPage(); await flush();
+    const list = wrapper.findComponent(SessionList);
+    list.vm.$emit("refresh"); await flush();
+    list.vm.$emit("delete", { id: 1, title: "A" }); await flush();
+    resolveStale(result([{ id: 1, title: "A", knowledgeBaseId: null, updatedAt: "t", userId: 1, status: 1, createdAt: "t" }]));
+    await flush(); await flush();
+    expect(list.props("sessions")).toEqual([]);
+    expect(listSessions).toHaveBeenCalledTimes(3);
+  });
+
+  it("deletes one assistant reply and refreshes authoritative history", async () => {
+    const user = { id: 10, sessionId: 1, role: 1, content: "question", status: 2, userId: 1, createdAt: "t" };
+    const assistant = { id: 11, sessionId: 1, role: 2, content: "answer", status: 2, userId: 1, createdAt: "t" };
+    listMessages.mockResolvedValueOnce([user, assistant]).mockResolvedValueOnce([user]);
+    confirm.mockResolvedValue(undefined);
+    deleteMessage.mockResolvedValue(undefined);
+    const wrapper = mountPage(); await flush();
+    wrapper.findComponent(SessionList).vm.$emit("select", 1); await flush();
+    const history = wrapper.findComponent(MessageHistory);
+    history.vm.$emit("delete", assistant); await flush(); await flush();
+    expect(deleteMessage).toHaveBeenCalledWith(1, 11);
+    expect(history.props("messages")).toEqual([user]);
+    expect(messages.success).toHaveBeenCalledWith("AI 回复已删除");
+  });
+
+  it("locks assistant deletion before confirmation", async () => {
+    let approve!: () => void;
+    const assistant = { id: 11, sessionId: 1, role: 2, content: "answer", status: 2, userId: 1, createdAt: "t" };
+    listMessages.mockResolvedValue([assistant]);
+    confirm.mockImplementationOnce(() => new Promise<void>(resolve => { approve = resolve; }));
+    deleteMessage.mockResolvedValue(undefined);
+    const wrapper = mountPage(); await flush();
+    wrapper.findComponent(SessionList).vm.$emit("select", 1); await flush();
+    const history = wrapper.findComponent(MessageHistory);
+    history.vm.$emit("delete", assistant);
+    history.vm.$emit("delete", assistant);
+    await flush();
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(history.props("deletingMessageId")).toBe(11);
+    approve(); await flush(); await flush();
+  });
+
+  it("copies message text and resends a user question with a fresh request id", async () => {
+    const user = { id: 10, sessionId: 1, role: 1, content: "question", status: 2, userId: 1, clientRequestId: "old-request", createdAt: "t" };
+    const assistant = { ...user, id: 11, role: 2, content: "answer【来源：private.docx】" };
+    listMessages.mockResolvedValue([user]);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    streamChat.mockResolvedValue({ terminal: "done" });
+    const wrapper = mountPage(); await flush();
+    wrapper.findComponent(SessionList).vm.$emit("select", 1); await flush();
+    const history = wrapper.findComponent(MessageHistory);
+    history.vm.$emit("copy", user); await flush();
+    history.vm.$emit("copy", assistant); await flush();
+    history.vm.$emit("resend", user); await flush();
+    expect(writeText).toHaveBeenNthCalledWith(1, "question");
+    expect(writeText).toHaveBeenNthCalledWith(2, "answer");
+    expect(streamChat).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 1,
+      question: "question",
+      clientRequestId: expect.not.stringMatching(/^old-request$/)
+    }), expect.any(Object));
   });
 
   it("refuses to delete a session that is undergoing background recovery", async () => {

@@ -11,6 +11,9 @@ import {
   deleteFolder,
   listDocuments,
   getDocument,
+  getDocumentContent,
+  updateDocument,
+  reingestDocument,
   deleteDocument,
   listMembers,
   addMember,
@@ -142,6 +145,15 @@ describe("knowledge api", () => {
       expect(http.delete).toHaveBeenCalledWith(
         "/api/knowledge/documents/100"
       );
+    });
+
+    it("文档预览、编辑和重新入库均使用 Gateway 的真实文档端点", async () => {
+      await getDocumentContent(100);
+      await updateDocument(100, { title: "新标题", folderId: 0, visibility: 3, status: 2 });
+      await reingestDocument(100);
+      expect(http.get).toHaveBeenCalledWith("/api/knowledge/documents/100/content", expect.objectContaining({ responseType: "blob" }));
+      expect(http.put).toHaveBeenCalledWith("/api/knowledge/documents/100", { title: "新标题", folderId: 0, visibility: 3, status: 2 });
+      expect(http.post).toHaveBeenCalledWith("/api/knowledge/documents/100/reingest");
     });
   });
 

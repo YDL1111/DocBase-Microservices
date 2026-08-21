@@ -11,6 +11,7 @@
  */
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { ArrowLeft } from "@element-plus/icons-vue";
 import { getKnowledgeBase } from "@/api/knowledge";
 import { useKnowledgeStoreHook } from "@/store/modules/knowledge";
 import { message } from "@/utils/message";
@@ -97,10 +98,13 @@ watch(
 
     <div v-else v-loading="loading" class="detail-container">
       <div v-if="knowledgeStore.currentBase" class="detail-header">
-        <h2>{{ knowledgeStore.currentBase.name }}</h2>
-        <p v-if="knowledgeStore.currentBase.description" class="description">
-          {{ knowledgeStore.currentBase.description }}
-        </p>
+        <el-button class="back-button" link :icon="ArrowLeft" @click="router.push('/knowledge')">返回知识库列表</el-button>
+        <div>
+          <h2>{{ knowledgeStore.currentBase.name }}</h2>
+          <p v-if="knowledgeStore.currentBase.description" class="description">
+            {{ knowledgeStore.currentBase.description }}
+          </p>
+        </div>
       </div>
 
       <el-tabs v-model="currentTab" class="detail-tabs">
@@ -142,6 +146,8 @@ watch(
     font-size: 14px;
   }
 }
+
+.back-button { margin: 0 0 12px -4px; color: #4d6b83; }
 
 .detail-tabs {
   margin-top: 8px;

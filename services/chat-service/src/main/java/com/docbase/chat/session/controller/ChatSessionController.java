@@ -10,6 +10,7 @@ import com.docbase.common.core.ApiResponse;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 
 import java.util.List;
 
@@ -42,7 +43,17 @@ public class ChatSessionController {
             @RequestBody ChatRequestDtos.CreateSessionRequest request,
             @AuthenticationPrincipal ChatUserPrincipal principal) {
         return ApiResponse.success(
-                sessionService.createSession(principal.userId(), request.knowledgeBaseId(), request.title()));
+                sessionService.createSession(principal.userId(), request.effectiveKnowledgeBaseIds(), request.title()));
+    }
+
+    @PutMapping("/sessions/{sessionId}/knowledge-bases")
+    @PreAuthorize("hasAuthority('ai:chat:list') or hasAuthority('admin:all')")
+    public ApiResponse<ChatSession> replaceKnowledgeBases(
+            @PathVariable Long sessionId,
+            @Valid @RequestBody ChatRequestDtos.ReplaceKnowledgeBasesRequest request,
+            @AuthenticationPrincipal ChatUserPrincipal principal) {
+        return ApiResponse.success(sessionService.replaceKnowledgeBases(
+                sessionId, principal.userId(), request.effectiveKnowledgeBaseIds()));
     }
 
     @GetMapping("/sessions/{sessionId}/messages")
@@ -51,6 +62,16 @@ public class ChatSessionController {
             @PathVariable Long sessionId,
             @AuthenticationPrincipal ChatUserPrincipal principal) {
         return ApiResponse.success(sessionService.listMessages(sessionId, principal.userId()));
+    }
+
+    @DeleteMapping("/sessions/{sessionId}/messages/{messageId}")
+    @PreAuthorize("hasAuthority('ai:chat:list') or hasAuthority('admin:all')")
+    public ApiResponse<Void> deleteMessage(
+            @PathVariable Long sessionId,
+            @PathVariable Long messageId,
+            @AuthenticationPrincipal ChatUserPrincipal principal) {
+        sessionService.deleteAssistantMessage(sessionId, messageId, principal.userId());
+        return ApiResponse.success(null);
     }
 
     @DeleteMapping("/sessions/{sessionId}")

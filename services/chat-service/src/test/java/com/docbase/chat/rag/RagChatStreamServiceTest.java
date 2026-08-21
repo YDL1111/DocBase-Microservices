@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Tests for {@link RagChatStreamService} using MockWebServer.
  * Verifies: request shaping, internal API key header, source filtering, error mapping.
- * Does NOT call real DeepSeek / bge-m3 / Chroma.
+ * Does NOT call a real chat provider / BGE-M3 / Chroma.
  */
 class RagChatStreamServiceTest {
 
@@ -104,7 +104,7 @@ class RagChatStreamServiceTest {
     @Test
     void stream_ragError_mapsToSafeEvent() {
         // RAG sends {"type":"error","message":"..."} — note: message field, not data
-        String sse = "data: {\"type\":\"error\",\"message\":\"internal deepseek timeout\"}\n\n";
+        String sse = "data: {\"type\":\"error\",\"message\":\"internal provider timeout\"}\n\n";
         mockWebServer.enqueue(new MockResponse()
                 .setBody(sse)
                 .setHeader("Content-Type", "text/event-stream"));
@@ -117,7 +117,7 @@ class RagChatStreamServiceTest {
                     RagDtos.ErrorPayload err = (RagDtos.ErrorPayload) e.data();
                     assertThat(err.code()).isEqualTo("RAG_ERROR");
                     // Internal message must NOT be exposed
-                    assertThat(err.message()).doesNotContain("deepseek");
+                    assertThat(err.message()).doesNotContain("provider timeout");
                     assertThat(err.message()).isEqualTo("AI 服务暂时不可用");
                 })
                 .verifyComplete();

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { ChatDotRound, Refresh } from "@element-plus/icons-vue";
+import { computed, ref } from "vue";
+import { ArrowDown, ChatDotRound, CopyDocument, Delete, Refresh, RefreshRight } from "@element-plus/icons-vue";
 import { ChatMessageRole, ChatMessageStatus, chatMessageRoleLabel, chatMessageStatusLabel } from "@/api/types";
 import type { ChatSource } from "@/api/chat-stream";
 import { RecoveryStatus, recoveryStatusText, type ChatViewMessage } from "../chat-ui";
+import { renderAnswerMarkdown } from "../chat-markdown";
 
 const props = defineProps<{
   messages: ChatViewMessage[];
@@ -14,10 +15,19 @@ const props = defineProps<{
   cancelling: boolean;
   draining: boolean;
   canAcceptInput: boolean;
+  deletingMessageId: number | null;
   attempt: { status: string; generation: number } | null;
 }>();
 
-const emit = defineEmits<{ refresh: []; retry: []; recheck: [] }>();
+const emit = defineEmits<{
+  refresh: [];
+  retry: [];
+  recheck: [];
+  copy: [message: ChatViewMessage];
+  delete: [message: ChatViewMessage];
+  resend: [message: ChatViewMessage];
+}>();
+const expandedSourceIds = ref(new Set<number | string>());
 
 function isSafeSource(source: unknown): source is ChatSource {
   if (!source || typeof source !== "object" || Array.isArray(source)) return false;
@@ -39,6 +49,19 @@ function messageSources(item: ChatViewMessage): ChatSource[] { return item.sourc
 function sourceText(source: ChatSource): string {
   const name = source.file_name?.trim() || "文档";
   return source.page ? `${name} · 第 ${source.page} 页` : name;
+}
+function toggleSources(messageId: number | string): void {
+  const next = new Set(expandedSourceIds.value);
+  if (next.has(messageId)) next.delete(messageId); else next.add(messageId);
+  expandedSourceIds.value = next;
+}
+function answerDuration(item: ChatViewMessage): string | null {
+  if (!item.completedAt) return null;
+  const started = Date.parse(item.createdAt);
+  const completed = Date.parse(item.completedAt);
+  if (!Number.isFinite(started) || !Number.isFinite(completed) || completed < started) return null;
+  const elapsed = (completed - started) / 1000;
+  return elapsed < 10 ? `${elapsed.toFixed(2)}s` : `${elapsed.toFixed(1)}s`;
 }
 function roleClass(role: number): string { return role === ChatMessageRole.USER ? "user" : role === ChatMessageRole.ASSISTANT ? "assistant" : "system"; }
 function statusType(status: number): "success" | "warning" | "danger" | "info" { return status === ChatMessageStatus.COMPLETED ? "success" : status === ChatMessageStatus.FAILED ? "danger" : status === ChatMessageStatus.CANCELLED ? "warning" : "info"; }
@@ -78,12 +101,50 @@ const inputLocked = computed(() => props.streaming || props.cancelling || props.
         <div class="message__body">
           <header><strong>{{ chatMessageRoleLabel(item.role) }}</strong><el-tag size="small" :type="statusType(item.status)">{{ chatMessageStatusLabel(item.status) }}</el-tag><time>{{ item.createdAt }}</time></header>
           <div class="message__content">
-            <p v-if="item.content">{{ item.content }}</p>
+            <div
+              v-if="item.content && item.role === ChatMessageRole.ASSISTANT"
+              class="message__markdown"
+              v-html="renderAnswerMarkdown(item.content)"
+            />
+            <p v-else-if="item.content">{{ item.content }}</p>
             <p v-else-if="item.status === ChatMessageStatus.STREAMING" class="message__generating">正在生成回答…</p>
             <p v-else-if="item.status === ChatMessageStatus.CANCELLED" class="message__interrupted">已停止生成。</p>
             <p v-if="item.temporary && (item.status === ChatMessageStatus.STREAMING || item.status === ChatMessageStatus.FAILED)" class="message__interrupted">结果待确认，将在连接结束后核对历史。</p>
             <p v-if="item.errorCode" class="message__error">消息处理未完成，请稍后刷新会话历史。</p>
-            <ul v-if="messageSources(item).length" class="message__sources"><li v-for="(source, index) in messageSources(item)" :key="index">{{ sourceText(source) }}</li></ul>
+          </div>
+          <div v-if="item.role === ChatMessageRole.ASSISTANT && messageSources(item).length" class="message__references">
+            <button type="button" class="message__references-toggle" :aria-expanded="expandedSourceIds.has(item.id)" @click="toggleSources(item.id)">
+              <el-icon :class="{ expanded: expandedSourceIds.has(item.id) }"><ArrowDown /></el-icon>
+              引用 {{ messageSources(item).length }} 项材料
+              <span>查看引用</span>
+            </button>
+            <ul v-if="expandedSourceIds.has(item.id)" class="message__sources">
+              <li v-for="(source, index) in messageSources(item)" :key="`${source.document_id}-${source.page ?? 0}-${index}`">{{ sourceText(source) }}</li>
+            </ul>
+          </div>
+          <div v-if="item.role === ChatMessageRole.USER || item.role === ChatMessageRole.ASSISTANT" class="message__actions">
+            <el-button link :icon="CopyDocument" title="复制消息" aria-label="复制消息" @click="emit('copy', item)" />
+            <el-button
+              v-if="item.role === ChatMessageRole.USER"
+              link
+              :icon="RefreshRight"
+              :disabled="!canAcceptInput || inputLocked || syncing"
+              title="重新发送"
+              aria-label="重新发送"
+              @click="emit('resend', item)"
+            />
+            <el-button
+              v-if="item.role === ChatMessageRole.ASSISTANT && typeof item.id === 'number'"
+              link
+              type="danger"
+              :icon="Delete"
+              :loading="deletingMessageId === item.id"
+              :disabled="inputLocked || syncing || deletingMessageId !== null"
+              title="删除回复"
+              aria-label="删除回复"
+              @click="emit('delete', item)"
+            />
+            <span v-if="item.role === ChatMessageRole.ASSISTANT && answerDuration(item)" class="message__duration">{{ answerDuration(item) }}</span>
           </div>
         </div>
       </article>
@@ -240,6 +301,62 @@ time {
   border-radius: 4px 8px 8px 8px;
 }
 
+.message__actions {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.message.user .message__actions {
+  justify-content: flex-end;
+}
+
+.message__duration {
+  min-width: 48px;
+  margin-left: 4px;
+  padding: 3px 7px;
+  color: #356c9a;
+  font-size: 11px;
+  text-align: center;
+  background: #edf5fc;
+  border-radius: 4px;
+}
+
+.message__references {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e2ebf2;
+}
+
+.message__references-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  color: #5c7489;
+  font: inherit;
+  font-size: 12px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.message__references-toggle span {
+  margin-left: 4px;
+  color: #256fa8;
+  font-weight: 600;
+}
+
+.message__references-toggle .el-icon {
+  transition: transform 160ms ease;
+}
+
+.message__references-toggle .el-icon.expanded {
+  transform: rotate(180deg);
+}
+
 .message.user .message__content {
   color: #fff;
   background: #2b75aa;
@@ -260,6 +377,67 @@ p {
   white-space: pre-wrap;
 }
 
+.message__markdown {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.message__markdown :deep(p),
+.message__markdown :deep(ul),
+.message__markdown :deep(ol),
+.message__markdown :deep(blockquote),
+.message__markdown :deep(pre) {
+  margin: 0 0 10px;
+}
+
+.message__markdown :deep(:last-child) {
+  margin-bottom: 0;
+}
+
+.message__markdown :deep(ul),
+.message__markdown :deep(ol) {
+  padding-left: 22px;
+}
+
+.message__markdown :deep(li + li) {
+  margin-top: 4px;
+}
+
+.message__markdown :deep(code) {
+  padding: 2px 5px;
+  color: #245878;
+  background: #edf4f8;
+  border-radius: 4px;
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 0.92em;
+}
+
+.message__markdown :deep(pre) {
+  overflow: auto;
+  padding: 12px;
+  background: #f2f6f9;
+  border: 1px solid #dce7ee;
+  border-radius: 6px;
+}
+
+.message__markdown :deep(pre code) {
+  padding: 0;
+  background: transparent;
+}
+
+.message__markdown :deep(blockquote) {
+  padding-left: 12px;
+  color: #587286;
+  border-left: 3px solid #9fc2da;
+}
+
+.message__markdown :deep(a) {
+  color: #176fa8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .message__error {
   color: #c64a4a;
 }
@@ -276,7 +454,7 @@ p {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   padding: 0;
   color: #52728a;
   font-size: 11px;

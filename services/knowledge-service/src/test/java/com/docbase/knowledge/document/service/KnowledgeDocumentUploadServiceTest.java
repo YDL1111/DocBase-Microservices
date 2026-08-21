@@ -32,7 +32,7 @@ class KnowledgeDocumentUploadServiceTest {
         BusinessException original = new BusinessException("OBJECT_STORAGE_UPLOAD_FAILED", "upload failed");
         doThrow(original).when(objectStorageService).putObject(anyString(), any(), anyString());
 
-        assertThatThrownBy(() -> service.upload(1L, file(), null, 0L, null, "request-1", 2L, false))
+        assertThatThrownBy(() -> service.upload(1L, file(), null, 0L, null, true, "request-1", 2L, false))
                 .isSameAs(original);
 
         InOrder order = inOrder(objectStorageService, requestService);
@@ -49,7 +49,7 @@ class KnowledgeDocumentUploadServiceTest {
         doThrow(new RuntimeException("delete failed")).when(objectStorageService).deleteObjectBestEffort(anyString());
         doThrow(new RuntimeException("release failed")).when(requestService).release(anyLong(), anyString());
 
-        assertThatThrownBy(() -> service.upload(1L, file(), null, 0L, null, "request-1", 2L, false))
+        assertThatThrownBy(() -> service.upload(1L, file(), null, 0L, null, true, "request-1", 2L, false))
                 .isSameAs(original);
     }
 

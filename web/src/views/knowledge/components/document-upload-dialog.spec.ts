@@ -16,6 +16,7 @@ const stubs = {
   ElDialog: { template: "<section v-if='modelValue'><slot /><slot name='footer' /></section>", props: ["modelValue"] },
   ElForm: { template: "<form><slot /></form>", setup(_props: unknown, { expose }: { expose: (value: unknown) => void }) { expose({ validate: () => Promise.resolve(true), clearValidate: vi.fn() }); } },
   ElFormItem: { template: "<div><slot /></div>" },
+  ElSwitch: { template: "<button type='button'><slot /></button>", props: ["modelValue"] },
   ElUpload: { name: "ElUpload", props: ["onChange"], template: "<div><slot /><slot name='tip' /></div>" },
   ElTreeSelect: { template: "<select />" },
   ElRadioGroup: { template: "<div><slot /></div>" },
@@ -85,7 +86,7 @@ describe("document upload dialog", () => {
     await flush();
 
     expect(uploadDocumentMock).toHaveBeenCalledWith(8, expect.objectContaining({
-      clientRequestId: "attempt-one", title: "guide", folderId: 12, visibility: 1
+      clientRequestId: "attempt-one", title: "guide", folderId: 12, visibility: 1, publishForChat: true
     }), expect.any(Object));
     expect(wrapper.emitted("uploaded")).toEqual([[99, 8]]);
     expect(messages.success).toHaveBeenCalled();

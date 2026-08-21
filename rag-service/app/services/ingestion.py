@@ -10,6 +10,8 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.services.parser import DocumentParser
 from app.services.chunker import TextChunker
+from app.services.document_block import NoExtractableTextError
+from app.services.document_lock import document_lifecycle_lock
 from app.services.vector_store import vector_store
 from app.services.object_storage import object_storage
 
@@ -57,6 +59,8 @@ class IngestionService:
         try:
             # Parse document
             documents, meta = self.parser.parse(tmp_path, file_name)
+            if not documents:
+                raise NoExtractableTextError()
 
             # Add metadata to documents
             for doc in documents:
@@ -70,14 +74,17 @@ class IngestionService:
 
             # Chunk documents
             chunks = self.chunker.chunk_documents(documents)
+            if not chunks:
+                raise NoExtractableTextError("Document produced no searchable chunks")
 
             # Store in vector database
             # Pass version_id as min_version_guard to prevent late-arriving old versions
             # from deleting newer data. This enables version protection.
-            chunk_count = vector_store.upsert_chunks(
-                knowledge_base_id, document_id, version_id, chunks,
-                min_version_guard=version_id
-            )
+            with document_lifecycle_lock.acquire(knowledge_base_id, document_id):
+                chunk_count = vector_store.upsert_chunks(
+                    knowledge_base_id, document_id, version_id, chunks,
+                    min_version_guard=version_id
+                )
 
             logger.info(f"Ingestion complete: {chunk_count} chunks for doc {document_id}")
 
@@ -96,12 +103,16 @@ class IngestionService:
 
     async def delete_document(self, knowledge_base_id: int, document_id: int) -> int:
         """Delete all chunks for a document."""
-        return vector_store.delete_document(knowledge_base_id, document_id)
+        with document_lifecycle_lock.acquire(knowledge_base_id, document_id):
+            return vector_store.delete_document(knowledge_base_id, document_id)
 
     async def delete_document_version(self, knowledge_base_id: int, document_id: int,
                                       version_id: int) -> int:
         """Delete chunks for a specific document version."""
-        return vector_store.delete_document_version(knowledge_base_id, document_id, version_id)
+        with document_lifecycle_lock.acquire(knowledge_base_id, document_id):
+            return vector_store.delete_document_version(
+                knowledge_base_id, document_id, version_id
+            )
 
 
 # Singleton instance

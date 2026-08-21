@@ -12,8 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Flux;
 import reactor.core.Disposable;
-
-import java.io.IOException;
+import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -44,8 +43,11 @@ public class ChatStreamController {
             @RequestBody ChatRequestDtos.StreamRequest request,
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestHeader(value = "X-Trace-Id", required = false) String traceId,
+            HttpServletResponse response,
             @AuthenticationPrincipal ChatUserPrincipal principal) {
 
+        response.setHeader("Cache-Control", "no-cache, no-transform");
+        response.setHeader("X-Accel-Buffering", "no");
         SseEmitter emitter = new SseEmitter(Duration.ofMinutes(5).toMillis());
         // Send initial comment to establish SSE connection
         try {
@@ -57,7 +59,7 @@ public class ChatStreamController {
 
         Flux<ServerSentEvent<Object>> flux = orchestrator.stream(
                 request.sessionId(),
-                request.knowledgeBaseId(),
+                request.effectiveKnowledgeBaseIds(),
                 request.question(),
                 request.clientRequestId(),
                 principal.userId(),

@@ -12,13 +12,14 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessageBox } from "element-plus";
-import { Refresh } from "@element-plus/icons-vue";
+import { ArrowLeft, Refresh } from "@element-plus/icons-vue";
 import {
   getIngestTask,
   retryIngestTask,
   cancelIngestTask
 } from "@/api/ingest";
 import { message } from "@/utils/message";
+import { formatBackendDateTime } from "@/utils/date-time";
 import {
   ingestTaskStatusLabel,
   ingestTaskStatusTagType,
@@ -278,6 +279,7 @@ watch(
     </div>
 
     <div v-else v-loading="loading" class="detail-container">
+      <el-button class="back-button" link :icon="ArrowLeft" @click="router.push('/ingest/tasks')">返回任务列表</el-button>
       <div v-if="task" class="detail-header">
         <h2>任务 #{{ task.id }}</h2>
         <div class="header-actions">
@@ -352,7 +354,7 @@ watch(
           <el-timeline>
             <el-timeline-item
               v-if="task.createdAt"
-              :timestamp="task.createdAt"
+              :timestamp="formatBackendDateTime(task.createdAt)"
               type="primary"
               placement="top"
             >
@@ -360,7 +362,7 @@ watch(
             </el-timeline-item>
             <el-timeline-item
               v-if="task.startedAt"
-              :timestamp="task.startedAt"
+              :timestamp="formatBackendDateTime(task.startedAt)"
               type="warning"
               placement="top"
             >
@@ -368,7 +370,7 @@ watch(
             </el-timeline-item>
             <el-timeline-item
               v-if="task.finishedAt"
-              :timestamp="task.finishedAt"
+              :timestamp="formatBackendDateTime(task.finishedAt)"
               :type="task.status === 'SUCCEEDED' ? 'success' : 'danger'"
               placement="top"
             >
@@ -378,7 +380,7 @@ watch(
         </div>
 
         <!-- 错误信息（纯文本，截断） -->
-        <div v-if="task.lastError" class="section">
+        <div v-if="task.status !== 'SUCCEEDED' && task.lastError" class="section">
           <div class="section-title">错误信息</div>
           <pre class="code-block error-block">{{ displayLastError }}</pre>
         </div>
@@ -405,6 +407,8 @@ watch(
     font-size: 18px;
   }
 }
+
+.back-button { margin: 0 0 12px -4px; color: #4d6b83; }
 
 .header-actions {
   display: flex;

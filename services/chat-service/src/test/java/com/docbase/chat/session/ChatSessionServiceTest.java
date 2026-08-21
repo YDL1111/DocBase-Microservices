@@ -4,6 +4,7 @@ import com.docbase.chat.session.domain.ChatMessage;
 import com.docbase.chat.session.domain.ChatSession;
 import com.docbase.chat.session.mapper.ChatMessageMapper;
 import com.docbase.chat.session.mapper.ChatSessionMapper;
+import com.docbase.chat.session.mapper.ChatSessionKnowledgeBaseMapper;
 import com.docbase.chat.session.service.ChatSessionService;
 import com.docbase.common.core.BusinessException;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -42,12 +43,16 @@ class ChatSessionServiceTest {
     @Autowired
     ChatMessageMapper messageMapper;
 
+    @Autowired
+    ChatSessionKnowledgeBaseMapper sessionKnowledgeBaseMapper;
+
     private Long user1Session;
 
     @BeforeEach
     void setUp() {
         // Clean up data from previous tests (H2 in-memory DB persists across tests in same context)
         messageMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>());
+        sessionKnowledgeBaseMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>());
         sessionMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>());
         ChatSession session = sessionService.createSession(1L, 100L, "Test Session");
         user1Session = session.getId();
@@ -60,6 +65,28 @@ class ChatSessionServiceTest {
         assertThat(session.getKnowledgeBaseId()).isEqualTo(200L);
         assertThat(session.getTitle()).isEqualTo("Hello");
         assertThat(session.getStatus()).isEqualTo(ChatConstants.SESSION_STATUS_ACTIVE);
+    }
+
+    @Test
+    void createAndReplaceKnowledgeBases_supportsZeroOneAndMany() {
+        ChatSession session = sessionService.createSession(5L, List.of(200L, 300L, 200L), "Multi");
+        assertThat(session.getKnowledgeBaseIds()).containsExactly(200L, 300L);
+
+        ChatSession replaced = sessionService.replaceKnowledgeBases(session.getId(), 5L, List.of(400L, 500L));
+        assertThat(replaced.getKnowledgeBaseIds()).containsExactly(400L, 500L);
+        assertThat(sessionService.requireOwnedSession(session.getId(), 5L).getKnowledgeBaseIds())
+                .containsExactly(400L, 500L);
+
+        sessionService.replaceKnowledgeBases(session.getId(), 5L, List.of());
+        ChatSession general = sessionService.requireOwnedSession(session.getId(), 5L);
+        assertThat(general.getKnowledgeBaseIds()).isEmpty();
+        assertThat(general.getKnowledgeBaseId()).isNull();
+    }
+
+    @Test
+    void replaceKnowledgeBases_otherUserDenied() {
+        assertThatThrownBy(() -> sessionService.replaceKnowledgeBases(user1Session, 2L, List.of(9L)))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
     }
 
     @Test
@@ -124,6 +151,33 @@ class ChatSessionServiceTest {
                 .filter(m -> m.getId().equals(msg.getId())).findFirst().orElse(null);
         assertThat(updatedMsg).isNotNull();
         assertThat(updatedMsg.getDeleted()).isEqualTo(1);
+        assertThat(sessionMapper.selectDeletedFlag(user1Session)).isEqualTo(1);
+        assertThat(sessionService.listSessions(1L, 1, 20).getRecords())
+                .noneMatch(session -> session.getId().equals(user1Session));
+    }
+
+    @Test
+    void deleteAssistantMessage_onlyDeletesOwnedTerminalAssistantReply() {
+        ChatMessage assistant = sessionService.createAssistantPlaceholder(user1Session, 1L);
+        sessionService.completeAssistantMessage(assistant.getId(), "answer", null,
+                ChatConstants.MESSAGE_STATUS_COMPLETED, null);
+
+        sessionService.deleteAssistantMessage(user1Session, assistant.getId(), 1L);
+
+        ChatMessage deleted = messageMapper.selectAllBySessionId(user1Session).stream()
+                .filter(message -> message.getId().equals(assistant.getId()))
+                .findFirst().orElseThrow();
+        assertThat(deleted.getDeleted()).isEqualTo(1);
+    }
+
+    @Test
+    void deleteAssistantMessage_rejectsUserMessageAndOtherUsersSession() {
+        ChatMessage userMessage = sessionService.saveUserMessage(user1Session, 1L, "question", null);
+        assertThatThrownBy(() -> sessionService.deleteAssistantMessage(user1Session, userMessage.getId(), 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code").isEqualTo("MESSAGE_NOT_FOUND");
+        assertThatThrownBy(() -> sessionService.deleteAssistantMessage(user1Session, userMessage.getId(), 2L))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
     }
 
     @Test
@@ -156,5 +210,6 @@ class ChatSessionServiceTest {
         assertThat(updated.getContent()).isEqualTo("answer");
         assertThat(updated.getSourcesJson()).isEqualTo("[{}]");
         assertThat(updated.getCompletedAt()).isNotNull();
+        assertThat(updated.getCompletedAt()).isAfterOrEqualTo(updated.getCreatedAt());
     }
 }

@@ -31,7 +31,7 @@ const progress = ref(0);
 const submittedFingerprint = ref<string | null>(null);
 const clientRequestId = ref<string | null>(null);
 const sourceChangedDuringUpload = ref(false);
-const form = reactive({ title: "", folderId: props.defaultFolderId || 0, visibility: 1 });
+const form = reactive({ title: "", folderId: props.defaultFolderId || 0, visibility: 1, publishForChat: true });
 
 const rules: FormRules = {
   title: [{ required: true, message: "请输入文档标题", trigger: "blur" }, { max: 256, message: "标题不能超过 256 个字符", trigger: "blur" }],
@@ -70,7 +70,7 @@ function validateFile(file: File): boolean {
 
 function fingerprint(): string | null {
   const file = selectedFile.value;
-  return file ? [file.name, file.size, file.lastModified, form.title, form.folderId, form.visibility].join("|") : null;
+  return file ? [file.name, file.size, file.lastModified, form.title, form.folderId, form.visibility, form.publishForChat].join("|") : null;
 }
 
 function beginNewAttempt(): void {
@@ -106,6 +106,7 @@ function resetForm(): void {
   form.title = "";
   form.folderId = props.defaultFolderId || 0;
   form.visibility = 1;
+  form.publishForChat = true;
   progress.value = 0;
   clientRequestId.value = null;
   submittedFingerprint.value = null;
@@ -166,7 +167,8 @@ async function submit(): Promise<void> {
       clientRequestId: attemptId,
       title: form.title.trim(),
       folderId: form.folderId,
-      visibility: form.visibility
+      visibility: form.visibility,
+      publishForChat: form.publishForChat
     }, { onUploadProgress: percent => { progress.value = percent; } });
     message.success("文件上传成功，正在入库");
     emit("uploaded", documentId, sourceKnowledgeBaseId);
@@ -211,7 +213,7 @@ watch(() => props.knowledgeBaseId, (knowledgeBaseId, previousKnowledgeBaseId) =>
   emit("update:modelValue", false);
   resetForm();
 });
-watch([() => form.title, () => form.folderId, () => form.visibility], () => {
+watch([() => form.title, () => form.folderId, () => form.visibility, () => form.publishForChat], () => {
   if (submittedFingerprint.value && submittedFingerprint.value !== fingerprint()) beginNewAttempt();
 });
 </script>
@@ -255,6 +257,10 @@ watch([() => form.title, () => form.folderId, () => form.visibility], () => {
           <el-radio :value="1">私有</el-radio><el-radio :value="2">部门</el-radio><el-radio :value="3">公开</el-radio>
         </el-radio-group>
         <div v-if="form.visibility === 2" class="visibility-note">部门可见性当前按后端 fail-closed 策略处理，部门成员不保证可见。</div>
+      </el-form-item>
+      <el-form-item label="AI 问答">
+        <el-switch v-model="form.publishForChat" :disabled="uploading" active-text="入库完成后用于问答" />
+        <div class="visibility-note">关闭后文档将保存为草稿，不会被 AI 对话检索。</div>
       </el-form-item>
       <el-form-item v-if="uploading" label="传输进度"><el-progress :percentage="progress" /></el-form-item>
     </el-form>

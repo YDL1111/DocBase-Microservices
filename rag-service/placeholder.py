@@ -12,7 +12,7 @@ class Handler(BaseHTTPRequestHandler):
             "service": "rag-service",
             "status": "UP",
             "stage": "placeholder",
-            "model": os.getenv("DEEPSEEK_MODEL", "keep-existing-deepseek-model"),
+            "model": os.getenv("CHAT_MODEL", "gpt-4o-mini"),
             "embeddingModel": "BAAI/bge-m3",
         }
         body = json.dumps(payload).encode("utf-8")

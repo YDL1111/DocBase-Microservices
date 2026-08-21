@@ -107,6 +107,7 @@ export interface ChatSession {
   id: number;
   userId: number;
   knowledgeBaseId: number | null;
+  knowledgeBaseIds?: number[];
   title: string;
   status: number;
   createdAt: string;
@@ -115,7 +116,7 @@ export interface ChatSession {
 }
 
 export interface CreateChatSessionRequest {
-  knowledgeBaseId: number | null;
+  knowledgeBaseIds: number[];
   title: string;
 }
 
@@ -236,6 +237,15 @@ export interface UploadDocumentRequest {
   title?: string;
   folderId?: number;
   visibility?: number;
+  /** true publishes the document so it can participate in AI chat after ingestion succeeds. */
+  publishForChat?: boolean;
+}
+
+export interface UpdateDocumentRequest {
+  title: string;
+  folderId: number;
+  visibility: number;
+  status: number;
 }
 
 /** 成员实体（对应 /api/knowledge/bases/{kbId}/members） */

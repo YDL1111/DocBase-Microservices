@@ -47,7 +47,7 @@ function displayTitle(session: ChatSession): string {
         <button class="session-list__select" type="button" @click="emit('select', session.id)">
           <el-icon class="session-list__chat-icon"><ChatDotRound /></el-icon>
           <span class="session-list__title">{{ displayTitle(session) }}</span>
-          <small>{{ session.knowledgeBaseId ? `知识库 ${session.knowledgeBaseId}` : '未绑定知识库' }}</small>
+          <small>{{ (session.knowledgeBaseIds?.length ?? (session.knowledgeBaseId ? 1 : 0)) > 0 ? `已绑定 ${session.knowledgeBaseIds?.length ?? 1} 个知识库` : '通用 AI 对话' }}</small>
         </button>
         <el-button class="session-list__delete" v-auth="'ai:chat:list'" link type="danger" :icon="Delete" :loading="deletingSessionId === session.id" :disabled="session.id === lockedSessionId" title="删除会话" aria-label="删除会话" @click.stop="emit('delete', session)" />
       </li>

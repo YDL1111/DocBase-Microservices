@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ref } from "vue";
+import { nextTick, ref, watchEffect } from "vue";
 import { ChatMessageRole, ChatMessageStatus, type ChatSession } from "@/api/types";
 
 const { stream, notices } = vi.hoisted(() => ({ stream: vi.fn(), notices: { error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
@@ -12,7 +12,7 @@ vi.mock("@/utils/message", () => ({ message: notices }));
 import { useChatStream } from "./use-chat-stream";
 import { RecoveryStatus, classifyRecovery } from "../chat-ui";
 
-const session = (): ChatSession => ({ id: 1, userId: 8, knowledgeBaseId: 3, title: "A", status: 1, createdAt: "now", updatedAt: "now" });
+const session = (): ChatSession => ({ id: 1, userId: 8, knowledgeBaseId: 3, knowledgeBaseIds: [3], title: "A", status: 1, createdAt: "now", updatedAt: "now" });
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
 
 interface SetupOptions {
@@ -72,6 +72,49 @@ describe("useChatStream", () => {
     expect(messages.value[0]).toMatchObject({ role: ChatMessageRole.USER, content: "question", status: ChatMessageStatus.COMPLETED });
     expect(notices.error).toHaveBeenCalledOnce();
     expect(notices.error).not.toHaveBeenCalledWith(expect.stringContaining("internal detail"));
+  });
+
+  it("notifies Vue rendering for every token before the stream completes", async () => {
+    const streamDone = deferred<any>();
+    let onEvent!: (event: any) => Promise<void>;
+    stream.mockImplementation((_request: unknown, options: any) => {
+      onEvent = options.onEvent;
+      return streamDone.promise;
+    });
+    const state = setup();
+    const rendered: string[] = [];
+    watchEffect(() => rendered.push(state.messages.value[1]?.content ?? ""));
+
+    expect(state.chat.send("question", session())).toBe(true);
+    await vi.waitFor(() => expect(onEvent).toBeTypeOf("function"));
+    await onEvent({ type: "token", data: "first" });
+    await nextTick();
+    expect(rendered).toContain("first");
+
+    await onEvent({ type: "token", data: " second" });
+    await nextTick();
+    expect(rendered).toContain("first second");
+    expect(state.chat.streaming.value).toBe(true);
+
+    streamDone.resolve({ terminal: "error", error: { code: "RAG_ERROR", message: "x" } });
+    await vi.waitFor(() => expect(state.chat.streaming.value).toBe(false));
+  });
+
+  it("shows an actionable message when bound knowledge bases have no searchable documents", async () => {
+    stream.mockResolvedValue({
+      terminal: "error",
+      error: { code: "NO_SEARCHABLE_DOCUMENTS", message: "server detail" }
+    });
+    const { chat, messages } = setup();
+
+    expect(chat.send("question", session())).toBe(true);
+
+    await vi.waitFor(() => expect(messages.value[1]).toMatchObject({
+      status: ChatMessageStatus.FAILED,
+      errorCode: "NO_SEARCHABLE_DOCUMENTS"
+    }));
+    expect(notices.error).toHaveBeenCalledWith(expect.stringContaining("已发布且入库成功"));
+    expect(notices.error).not.toHaveBeenCalledWith(expect.stringContaining("server detail"));
   });
 
   it("refreshes persisted history after done and keeps the temporary answer until it arrives", async () => {
@@ -213,12 +256,14 @@ describe("useChatStream", () => {
     await vi.waitFor(() => expect(state.chat.streaming.value).toBe(false));
   });
 
-  it("rejects empty questions and invalid or unbound sessions before starting a stream", async () => {
+  it("rejects empty questions but allows a valid session without a knowledge base", async () => {
+    stream.mockResolvedValue({ terminal: "done" });
     const { chat } = setup();
     expect(chat.send("   ", session())).toBe(false);
-    expect(chat.send("question", { ...session(), knowledgeBaseId: null })).toBe(false);
-    expect(stream).not.toHaveBeenCalled();
-    expect(notices.warning).toHaveBeenCalledOnce();
+    expect(chat.send("question", { ...session(), knowledgeBaseId: null, knowledgeBaseIds: [] })).toBe(true);
+    await vi.waitFor(() => expect(stream).toHaveBeenCalledOnce());
+    expect(stream.mock.calls[0][0]).toMatchObject({ sessionId: 1, knowledgeBaseIds: [], question: "question" });
+    expect(notices.warning).not.toHaveBeenCalled();
   });
 
   // ---- Phase 4C2A recovery & reconciliation ----

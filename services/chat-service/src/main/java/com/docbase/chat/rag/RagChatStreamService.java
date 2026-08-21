@@ -67,18 +67,25 @@ public class RagChatStreamService {
      */
     public Flux<ServerSentEvent<Object>> stream(
             String query,
-            Long knowledgeBaseId,
-            List<Long> visibleDocumentIds,
+            List<RagDtos.KnowledgeScope> knowledgeScopes,
             Long sessionId) {
 
+        List<RagDtos.KnowledgeScope> scopes = knowledgeScopes != null ? knowledgeScopes : List.of();
+        Long compatibilityKnowledgeBaseId = scopes.size() == 1 ? scopes.get(0).knowledge_base_id() : null;
+        List<Long> compatibilityVisibleIds = scopes.size() == 1 ? scopes.get(0).visible_document_ids() : List.of();
         RagDtos.ChatRequest request = new RagDtos.ChatRequest(
                 query,
-                knowledgeBaseId,
-                visibleDocumentIds != null ? visibleDocumentIds : List.of(),
+                scopes,
+                compatibilityKnowledgeBaseId,
+                compatibilityVisibleIds,
                 sessionId != null ? String.valueOf(sessionId) : null
         );
 
         AtomicBoolean sourcesValidated = new AtomicBoolean(false);
+        List<Long> visibleDocumentIds = request.knowledge_scopes().stream()
+                .flatMap(scope -> scope.visible_document_ids().stream())
+                .distinct()
+                .toList();
 
         return webClient.post()
                 .uri("/internal/v1/rag/chat/stream")
@@ -107,6 +114,16 @@ public class RagChatStreamService {
                     log.warn("RAG stream error: {}", e.getMessage());
                     return Flux.just(errorEvent("RAG_UNAVAILABLE", "AI 服务暂时不可用"));
                 });
+    }
+
+    /** Backward-compatible single-knowledge-base adapter. */
+    public Flux<ServerSentEvent<Object>> stream(
+            String query, Long knowledgeBaseId, List<Long> visibleDocumentIds, Long sessionId) {
+        List<RagDtos.KnowledgeScope> scopes = knowledgeBaseId == null
+                ? List.of()
+                : List.of(new RagDtos.KnowledgeScope(knowledgeBaseId,
+                visibleDocumentIds != null ? visibleDocumentIds : List.of()));
+        return stream(query, scopes, sessionId);
     }
 
     /**

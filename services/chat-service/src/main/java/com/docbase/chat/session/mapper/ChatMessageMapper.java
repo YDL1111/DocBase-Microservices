@@ -32,6 +32,34 @@ public interface ChatMessageMapper extends BaseMapper<ChatMessage> {
     @Update("UPDATE ai_chat_message SET deleted = 1 WHERE session_id = #{sessionId} AND deleted = 0")
     int softDeleteBySessionId(@Param("sessionId") Long sessionId);
 
+    /** Soft-deletes one assistant reply in an owned session. */
+    @Update("""
+            UPDATE ai_chat_message
+            SET deleted = 1
+            WHERE id = #{messageId}
+              AND session_id = #{sessionId}
+              AND role = 2
+              AND status IN (2, 3, 4)
+              AND deleted = 0
+            """)
+    int softDeleteAssistant(@Param("sessionId") Long sessionId, @Param("messageId") Long messageId);
+
+    /** Completes an assistant message using the database clock for consistent duration timestamps. */
+    @Update("""
+            UPDATE ai_chat_message
+            SET content = #{content},
+                sources_json = #{sourcesJson},
+                status = #{status},
+                error_code = #{errorCode},
+                completed_at = CURRENT_TIMESTAMP
+            WHERE id = #{messageId} AND deleted = 0
+            """)
+    int completeAssistant(@Param("messageId") Long messageId,
+                          @Param("content") String content,
+                          @Param("sourcesJson") String sourcesJson,
+                          @Param("status") int status,
+                          @Param("errorCode") String errorCode);
+
     /**
      * Selects all messages of a session including soft-deleted ones (bypasses logic-delete).
      */

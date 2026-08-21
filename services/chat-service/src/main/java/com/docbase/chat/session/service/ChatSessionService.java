@@ -1,12 +1,15 @@
 package com.docbase.chat.session.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.docbase.chat.session.ChatConstants;
 import com.docbase.chat.session.domain.ChatMessage;
 import com.docbase.chat.session.domain.ChatSession;
+import com.docbase.chat.session.domain.ChatSessionKnowledgeBase;
 import com.docbase.chat.session.mapper.ChatMessageMapper;
 import com.docbase.chat.session.mapper.ChatSessionMapper;
+import com.docbase.chat.session.mapper.ChatSessionKnowledgeBaseMapper;
 import com.docbase.common.core.BusinessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 /**
@@ -33,10 +37,13 @@ public class ChatSessionService {
 
     private final ChatSessionMapper sessionMapper;
     private final ChatMessageMapper messageMapper;
+    private final ChatSessionKnowledgeBaseMapper sessionKnowledgeBaseMapper;
 
-    public ChatSessionService(ChatSessionMapper sessionMapper, ChatMessageMapper messageMapper) {
+    public ChatSessionService(ChatSessionMapper sessionMapper, ChatMessageMapper messageMapper,
+                              ChatSessionKnowledgeBaseMapper sessionKnowledgeBaseMapper) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
+        this.sessionKnowledgeBaseMapper = sessionKnowledgeBaseMapper;
     }
 
     /**
@@ -45,10 +52,12 @@ public class ChatSessionService {
     public Page<ChatSession> listSessions(Long userId, long current, long size) {
         long cappedSize = Math.min(size, ChatConstants.MAX_PAGE_SIZE);
         Page<ChatSession> page = new Page<>(current, cappedSize);
-        return sessionMapper.selectPage(page, new QueryWrapper<ChatSession>()
+        Page<ChatSession> result = sessionMapper.selectPage(page, new QueryWrapper<ChatSession>()
                 .eq("user_id", userId)
                 .eq("deleted", 0)
                 .orderByDesc("updated_at"));
+        result.getRecords().forEach(this::hydrateKnowledgeBases);
+        return result;
     }
 
     /**
@@ -56,13 +65,40 @@ public class ChatSessionService {
      */
     @Transactional
     public ChatSession createSession(Long userId, Long knowledgeBaseId, String title) {
+        return createSession(userId, knowledgeBaseId == null ? List.of() : List.of(knowledgeBaseId), title);
+    }
+
+    @Transactional
+    public ChatSession createSession(Long userId, List<Long> knowledgeBaseIds, String title) {
+        List<Long> normalizedIds = normalizeKnowledgeBaseIds(knowledgeBaseIds);
         ChatSession session = new ChatSession();
         session.setUserId(userId);
-        session.setKnowledgeBaseId(knowledgeBaseId);
+        session.setKnowledgeBaseId(normalizedIds.isEmpty() ? null : normalizedIds.get(0));
         session.setTitle(truncate(title, ChatConstants.MAX_TITLE_LENGTH));
         session.setStatus(ChatConstants.SESSION_STATUS_ACTIVE);
         session.setDeleted(0);
         sessionMapper.insert(session);
+        insertKnowledgeBaseBindings(session.getId(), normalizedIds);
+        session.setKnowledgeBaseIds(normalizedIds);
+        return session;
+    }
+
+    /** Replaces the knowledge bases of an owned session. An empty list means general chat. */
+    @Transactional
+    public ChatSession replaceKnowledgeBases(Long sessionId, Long userId, List<Long> knowledgeBaseIds) {
+        ChatSession session = requireOwnedSession(sessionId, userId);
+        List<Long> normalizedIds = normalizeKnowledgeBaseIds(knowledgeBaseIds);
+        sessionKnowledgeBaseMapper.deleteBySessionId(sessionId);
+        insertKnowledgeBaseBindings(sessionId, normalizedIds);
+        Long compatibilityId = normalizedIds.isEmpty() ? null : normalizedIds.get(0);
+        sessionMapper.update(null, new UpdateWrapper<ChatSession>()
+                .eq("id", sessionId)
+                .eq("user_id", userId)
+                .eq("deleted", 0)
+                .set("knowledge_base_id", compatibilityId)
+                .set("updated_at", LocalDateTime.now()));
+        session.setKnowledgeBaseId(compatibilityId);
+        session.setKnowledgeBaseIds(normalizedIds);
         return session;
     }
 
@@ -80,6 +116,7 @@ public class ChatSessionService {
             // Same response shape as not-found to avoid leaking session existence.
             throw new AccessDeniedException("You do not have permission to access this session");
         }
+        hydrateKnowledgeBases(session);
         return session;
     }
 
@@ -99,12 +136,24 @@ public class ChatSessionService {
      */
     @Transactional
     public void deleteSession(Long sessionId, Long userId) {
-        ChatSession session = requireOwnedSession(sessionId, userId);
-        session.setDeleted(1);
-        sessionMapper.updateById(session);
-        // Soft-delete messages via direct SQL to avoid MyBatis-Plus logic-delete quirks on H2
+        requireOwnedSession(sessionId, userId);
+        int affected = sessionMapper.softDeleteOwned(sessionId, userId);
+        if (affected != 1) {
+            throw new BusinessException("SESSION_NOT_FOUND", "Session not found");
+        }
+        sessionKnowledgeBaseMapper.deleteBySessionId(sessionId);
         messageMapper.softDeleteBySessionId(sessionId);
         log.info("Deleted session {} for user {}", sessionId, userId);
+    }
+
+    /** Soft-deletes one completed assistant reply after enforcing session ownership. */
+    @Transactional
+    public void deleteAssistantMessage(Long sessionId, Long messageId, Long userId) {
+        requireOwnedSession(sessionId, userId);
+        int affected = messageMapper.softDeleteAssistant(sessionId, messageId);
+        if (affected != 1) {
+            throw new BusinessException("MESSAGE_NOT_FOUND", "Message not found");
+        }
     }
 
     /**
@@ -158,16 +207,7 @@ public class ChatSessionService {
     @Transactional
     public void completeAssistantMessage(Long messageId, String content, String sourcesJson,
                                          int status, String errorCode) {
-        ChatMessage msg = messageMapper.selectById(messageId);
-        if (msg == null || msg.getDeleted() == 1) {
-            return;
-        }
-        msg.setContent(content);
-        msg.setSourcesJson(sourcesJson);
-        msg.setStatus(status);
-        msg.setErrorCode(errorCode);
-        msg.setCompletedAt(LocalDateTime.now());
-        messageMapper.updateById(msg);
+        messageMapper.completeAssistant(messageId, content, sourcesJson, status, errorCode);
     }
 
     /**
@@ -211,5 +251,33 @@ public class ChatSessionService {
             return "";
         }
         return value.length() > max ? value.substring(0, max) : value;
+    }
+
+    private void hydrateKnowledgeBases(ChatSession session) {
+        List<Long> ids = sessionKnowledgeBaseMapper.selectKnowledgeBaseIds(session.getId());
+        // Compatibility for databases upgraded before V3 has run in a test fixture.
+        if (ids.isEmpty() && session.getKnowledgeBaseId() != null) ids = List.of(session.getKnowledgeBaseId());
+        session.setKnowledgeBaseIds(ids);
+    }
+
+    private List<Long> normalizeKnowledgeBaseIds(List<Long> knowledgeBaseIds) {
+        if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty()) return List.of();
+        LinkedHashSet<Long> unique = new LinkedHashSet<>();
+        for (Long id : knowledgeBaseIds) {
+            if (id == null || id <= 0) {
+                throw new BusinessException("INVALID_KNOWLEDGE_BASE_IDS", "知识库 ID 必须为正整数");
+            }
+            unique.add(id);
+            if (unique.size() > 20) {
+                throw new BusinessException("TOO_MANY_KNOWLEDGE_BASES", "单个会话最多绑定 20 个知识库");
+            }
+        }
+        return List.copyOf(unique);
+    }
+
+    private void insertKnowledgeBaseBindings(Long sessionId, List<Long> knowledgeBaseIds) {
+        for (Long knowledgeBaseId : knowledgeBaseIds) {
+            sessionKnowledgeBaseMapper.insert(new ChatSessionKnowledgeBase(sessionId, knowledgeBaseId));
+        }
     }
 }

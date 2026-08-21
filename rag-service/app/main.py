@@ -14,6 +14,7 @@ from app.api.internal_ingest import router as internal_router
 from app.messaging.consumer import RagConsumer
 from app.messaging.publisher import OutboxPublisher
 from app.services.event_handler import EventHandler
+from app.services.embedding import embedding_service
 
 setup_logging()
 logger = get_logger(__name__)
@@ -35,6 +36,11 @@ async def lifespan(app: FastAPI):
 
     # Register with Nacos (non-blocking - failure doesn't prevent startup)
     await nacos_client.start()
+
+    # BGE-M3 is expensive to load and initialize on CPU. Complete that work
+    # before Uvicorn marks startup finished so the first user query stays fast.
+    if settings.HF_WARMUP_ON_STARTUP:
+        await asyncio.to_thread(embedding_service.warmup)
 
     # Start Outbox Publisher
     publisher = OutboxPublisher()

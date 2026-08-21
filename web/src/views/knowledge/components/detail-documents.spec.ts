@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { nextTick } from "vue";
+import { ElMessageBox } from "element-plus";
 
-const { listDocumentsMock, deleteDocumentMock } = vi.hoisted(() => ({ listDocumentsMock: vi.fn(), deleteDocumentMock: vi.fn() }));
+const { listDocumentsMock, deleteDocumentMock, updateDocumentMock, reingestDocumentMock, getDocumentContentMock } = vi.hoisted(() => ({ listDocumentsMock: vi.fn(), deleteDocumentMock: vi.fn(), updateDocumentMock: vi.fn(), reingestDocumentMock: vi.fn(), getDocumentContentMock: vi.fn() }));
 vi.mock("@/api/knowledge", () => ({
   listDocuments: (...args: unknown[]) => listDocumentsMock(...args),
-  deleteDocument: (...args: unknown[]) => deleteDocumentMock(...args)
+  deleteDocument: (...args: unknown[]) => deleteDocumentMock(...args),
+  updateDocument: (...args: unknown[]) => updateDocumentMock(...args),
+  reingestDocument: (...args: unknown[]) => reingestDocumentMock(...args),
+  getDocumentContent: (...args: unknown[]) => getDocumentContentMock(...args)
 }));
 vi.mock("@/utils/message", () => ({ message: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
 
@@ -25,6 +29,9 @@ describe("knowledge document list refresh isolation", () => {
   beforeEach(() => {
     listDocumentsMock.mockReset();
     deleteDocumentMock.mockReset();
+    updateDocumentMock.mockReset();
+    reingestDocumentMock.mockReset();
+    getDocumentContentMock.mockReset();
     vi.useFakeTimers();
   });
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -79,6 +86,73 @@ describe("knowledge document list refresh isolation", () => {
     await flush();
     expect(listDocumentsMock).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
+    wrapper.unmount();
+  });
+
+  it("edits document metadata and creates a reingest task from the document row", async () => {
+    listDocumentsMock.mockResolvedValue(page(1, 3));
+    updateDocumentMock.mockResolvedValue(undefined);
+    reingestDocumentMock.mockResolvedValue(undefined);
+    vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as never);
+    const store = useKnowledgeStoreHook();
+    store.reset();
+    store.beginBaseContext(1);
+    const wrapper = mountList(1);
+    await flush();
+    const row = store.documentList[0];
+
+    (wrapper.vm as any).openEdit(row);
+    (wrapper.vm as any).editForm.title = "更新后的标题";
+    await (wrapper.vm as any).submitEdit();
+    expect(updateDocumentMock).toHaveBeenCalledWith(1, expect.objectContaining({ title: "更新后的标题" }));
+
+    await (wrapper.vm as any).handleReingest(row);
+    expect(reingestDocumentMock).toHaveBeenCalledWith(1);
+    wrapper.unmount();
+  });
+
+  it("locks reingest before confirmation so a double click cannot enqueue twice", async () => {
+    listDocumentsMock.mockResolvedValue(page(1, 3));
+    let approve!: () => void;
+    vi.spyOn(ElMessageBox, "confirm").mockImplementationOnce(() => new Promise(resolve => { approve = () => resolve("confirm" as never); }));
+    reingestDocumentMock.mockResolvedValue(undefined);
+    const store = useKnowledgeStoreHook();
+    store.reset();
+    store.beginBaseContext(1);
+    const wrapper = mountList(1);
+    await flush();
+    const row = store.documentList[0];
+
+    const first = (wrapper.vm as any).handleReingest(row);
+    const second = (wrapper.vm as any).handleReingest(row);
+    expect(ElMessageBox.confirm).toHaveBeenCalledOnce();
+    approve();
+    await first;
+    await second;
+    expect(reingestDocumentMock).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
+  it("publishes a draft document explicitly so it becomes eligible for AI chat", async () => {
+    const draftPage = page(1, 3);
+    draftPage.records[0].status = 1;
+    listDocumentsMock.mockResolvedValue(draftPage);
+    updateDocumentMock.mockResolvedValue(undefined);
+    vi.spyOn(ElMessageBox, "confirm").mockResolvedValue("confirm" as never);
+    const store = useKnowledgeStoreHook();
+    store.reset();
+    store.beginBaseContext(1);
+    const wrapper = mountList(1);
+    await flush();
+
+    await (wrapper.vm as any).handlePublishToggle(store.documentList[0]);
+
+    expect(updateDocumentMock).toHaveBeenCalledWith(1, {
+      title: "doc-1",
+      folderId: 0,
+      visibility: 1,
+      status: 2
+    });
     wrapper.unmount();
   });
 });

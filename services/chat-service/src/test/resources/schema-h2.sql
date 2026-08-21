@@ -26,3 +26,10 @@ CREATE TABLE IF NOT EXISTS ai_chat_message (
     completed_at        TIMESTAMP(6)  ,
     deleted             TINYINT       NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS ai_chat_session_knowledge_base (
+    id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+    session_id        BIGINT NOT NULL,
+    knowledge_base_id BIGINT NOT NULL,
+    UNIQUE (session_id, knowledge_base_id)
+);

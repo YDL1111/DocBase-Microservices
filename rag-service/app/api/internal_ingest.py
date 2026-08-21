@@ -52,6 +52,7 @@ async def chat_stream(
     async def event_generator():
         async for chunk in rag_service.chat_stream(
             query=request.query,
+            knowledge_scopes=request.knowledge_scopes,
             knowledge_base_id=request.knowledge_base_id,
             visible_document_ids=request.visible_document_ids,
         ):
@@ -60,4 +61,8 @@ async def chat_stream(
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
     )

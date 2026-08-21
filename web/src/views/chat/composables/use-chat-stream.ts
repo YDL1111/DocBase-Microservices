@@ -1,4 +1,4 @@
-import { ref, type Ref } from "vue";
+import { reactive, ref, type Ref } from "vue";
 import { ChatStreamClientError, streamChat, type ChatSource } from "@/api/chat-stream";
 import { ChatMessageRole, ChatMessageStatus, type ChatMessage, type ChatSession } from "@/api/types";
 import { message } from "@/utils/message";
@@ -24,7 +24,7 @@ interface StreamContext {
   terminalReceived: boolean;
   clientRequestId: string;
   question: string;
-  knowledgeBaseId: number | null;
+  knowledgeBaseIds: number[];
 }
 
 export interface UseChatStreamOptions {
@@ -53,6 +53,13 @@ function safeFailureMessage(error: unknown): string {
     if (error.code === "UNAUTHENTICATED") return "登录状态已失效，请重新登录。";
   }
   return "暂时无法生成回答，请稍后重试。";
+}
+
+function safeServerFailureMessage(code: string): string {
+  if (code === "NO_SEARCHABLE_DOCUMENTS") return "所选知识库没有已发布且入库成功的可见文档，请先到知识库发布文档或等待入库完成。";
+  if (code === "KNOWLEDGE_SCOPE_FORBIDDEN") return "当前账号无权检索所选知识库，请检查知识库成员权限。";
+  if (code === "KNOWLEDGE_SCOPE_UNAVAILABLE") return "知识库检索服务暂时不可用，请稍后重试。";
+  return safeFailureMessage(undefined);
 }
 
 export function useChatStream(options: UseChatStreamOptions) {
@@ -121,7 +128,9 @@ export function useChatStream(options: UseChatStreamOptions) {
     settling.value = true;
     draining.value = true;
     canAcceptInput.value = false;
-    if (notify) message.error(safeFailureMessage(code === "STREAM_INCOMPLETE" ? new ChatStreamClientError("STREAM_INCOMPLETE") : undefined));
+    if (notify) message.error(code === "STREAM_INCOMPLETE"
+      ? safeFailureMessage(new ChatStreamClientError("STREAM_INCOMPLETE"))
+      : safeServerFailureMessage(code));
     if (recovery === "uncertain") {
       const next: RecoveryAttempt = {
         sessionId: context.sessionId,
@@ -434,7 +443,7 @@ export function useChatStream(options: UseChatStreamOptions) {
     try {
       const outcome = await streamChat({
         sessionId: context.sessionId,
-        knowledgeBaseId: context.knowledgeBaseId,
+        knowledgeBaseIds: context.knowledgeBaseIds,
         question: context.question,
         clientRequestId: context.clientRequestId
       }, {
@@ -536,11 +545,13 @@ export function useChatStream(options: UseChatStreamOptions) {
   function send(question: string, session: ChatSession | undefined): boolean {
     const normalizedQuestion = question.trim();
     if (!canAcceptInput.value || streaming.value || draining.value || cancelling.value || !normalizedQuestion || normalizedQuestion.length > MAX_QUESTION_LENGTH) return false;
-    if (!session || !Number.isSafeInteger(session.id) || session.id < 1 || !Number.isSafeInteger(session.knowledgeBaseId) || (session.knowledgeBaseId ?? 0) < 1) {
-      message.warning("请选择一个已绑定知识库的有效会话后再提问。");
+    const knowledgeBaseIds = session?.knowledgeBaseIds ?? (session?.knowledgeBaseId ? [session.knowledgeBaseId] : []);
+    if (!session || !Number.isSafeInteger(session.id) || session.id < 1
+      || knowledgeBaseIds.length > 20
+      || knowledgeBaseIds.some(id => !Number.isSafeInteger(id) || id < 1)) {
+      message.warning("请选择一个有效会话后再提问。");
       return false;
     }
-    const knowledgeBaseId = session.knowledgeBaseId as number;
     let clientRequestId: string;
     try { clientRequestId = requestId(); } catch { message.error("当前浏览器无法安全创建请求，请升级浏览器后重试。"); return false; }
     cancel("replacement");
@@ -557,7 +568,7 @@ export function useChatStream(options: UseChatStreamOptions) {
       clientRequestId,
       temporary: true
     };
-    const assistant: ChatViewMessage = {
+    const assistant = reactive<ChatViewMessage>({
       id: `stream-assistant-${gen}`,
       sessionId: session.id,
       userId: session.userId,
@@ -567,7 +578,7 @@ export function useChatStream(options: UseChatStreamOptions) {
       createdAt: timestamp(),
       sources: [],
       temporary: true
-    };
+    });
     const context: StreamContext = {
       generation: gen,
       sessionId: session.id,
@@ -577,7 +588,7 @@ export function useChatStream(options: UseChatStreamOptions) {
       question: normalizedQuestion,
       userMessage,
       assistant,
-      knowledgeBaseId
+      knowledgeBaseIds
     };
     clearAttempt(null);
     active = context;
@@ -592,7 +603,7 @@ export function useChatStream(options: UseChatStreamOptions) {
   function retry(target: RecoveryAttempt): boolean {
     if (!canAcceptInput.value || streaming.value || draining.value || cancelling.value || !options.isMounted()) return false;
     if (!attemptIsLive(target)) return false;
-    const session = { id: target.sessionId, userId: 0, knowledgeBaseId: 0, title: "", status: 0, createdAt: "", updatedAt: "" } as ChatSession;
+    const session = { id: target.sessionId, userId: 0, knowledgeBaseId: null, knowledgeBaseIds: [], title: "", status: 0, createdAt: "", updatedAt: "" } as ChatSession;
     cancel("replacement");
     options.invalidateHistory();
     const gen = ++generation;
@@ -607,7 +618,7 @@ export function useChatStream(options: UseChatStreamOptions) {
       clientRequestId: target.clientRequestId,
       temporary: true
     };
-    const assistant: ChatViewMessage = {
+    const assistant = reactive<ChatViewMessage>({
       id: `stream-assistant-${gen}`,
       sessionId: target.sessionId,
       userId: session.userId,
@@ -617,7 +628,7 @@ export function useChatStream(options: UseChatStreamOptions) {
       createdAt: timestamp(),
       sources: [],
       temporary: true
-    };
+    });
     const context: StreamContext = {
       generation: gen,
       sessionId: target.sessionId,
@@ -627,7 +638,7 @@ export function useChatStream(options: UseChatStreamOptions) {
       question: target.question,
       userMessage,
       assistant,
-      knowledgeBaseId: null
+      knowledgeBaseIds: []
     };
     clearAttempt(null);
     active = context;
@@ -651,7 +662,7 @@ export function useChatStream(options: UseChatStreamOptions) {
       terminalReceived: true,
       clientRequestId: target.clientRequestId,
       question: target.question,
-      knowledgeBaseId: null
+      knowledgeBaseIds: []
     };
     target.pendingRecheck = true;
     target.status = RecoveryStatus.RECHECKING;

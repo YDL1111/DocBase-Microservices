@@ -13,6 +13,7 @@ import com.docbase.chat.session.service.ChatSessionService.StreamPrepareResult;
 import com.docbase.common.core.BusinessException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import feign.FeignException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.codec.ServerSentEvent;
@@ -70,7 +71,7 @@ public class ChatStreamOrchestrator {
      * Executes the streaming flow and returns the SSE flux.
      *
      * @param sessionId        existing session id (nullable — a new session is created if absent)
-     * @param knowledgeBaseId  knowledge base id (required when creating a new session)
+     * @param knowledgeBaseIds optional knowledge base ids; empty creates a general chat session
      * @param question         the user question
      * @param clientRequestId  optional idempotency key
      * @param userId           current user id from JWT (never from the client)
@@ -79,7 +80,7 @@ public class ChatStreamOrchestrator {
      */
     public Flux<ServerSentEvent<Object>> stream(
             Long sessionId,
-            Long knowledgeBaseId,
+            List<Long> knowledgeBaseIds,
             String question,
             String clientRequestId,
             Long userId,
@@ -98,24 +99,19 @@ public class ChatStreamOrchestrator {
         // For existing sessions, ALWAYS use the session's stored knowledgeBaseId — never trust
         // the request's knowledgeBaseId, which could be null or a different KB.
         final ChatSession session;
-        final Long effectiveKnowledgeBaseId;
+        final List<Long> effectiveKnowledgeBaseIds;
         try {
             if (sessionId != null) {
                 session = sessionService.requireOwnedSession(sessionId, userId);
-                effectiveKnowledgeBaseId = session.getKnowledgeBaseId();
-                if (effectiveKnowledgeBaseId == null) {
-                    return Flux.just(RagDtos.errorEvent("INVALID_INPUT", "该会话未关联知识库"));
-                }
-                // Reject if request tries to switch KB for an existing session.
-                if (knowledgeBaseId != null && !knowledgeBaseId.equals(effectiveKnowledgeBaseId)) {
+                effectiveKnowledgeBaseIds = session.getKnowledgeBaseIds();
+                // Existing session bindings are authoritative. A non-empty conflicting request is rejected.
+                if (knowledgeBaseIds != null && !knowledgeBaseIds.isEmpty()
+                        && !knowledgeBaseIds.equals(effectiveKnowledgeBaseIds)) {
                     return Flux.just(RagDtos.errorEvent("KB_MISMATCH", "会话知识库与请求不一致"));
                 }
             } else {
-                if (knowledgeBaseId == null) {
-                    return Flux.just(RagDtos.errorEvent("INVALID_INPUT", "缺少知识库ID"));
-                }
-                effectiveKnowledgeBaseId = knowledgeBaseId;
-                session = sessionService.createSession(userId, effectiveKnowledgeBaseId,
+                effectiveKnowledgeBaseIds = knowledgeBaseIds == null ? List.of() : knowledgeBaseIds;
+                session = sessionService.createSession(userId, effectiveKnowledgeBaseIds,
                         question.length() > 20 ? question.substring(0, 20) + "..." : question);
             }
         } catch (BusinessException e) {
@@ -127,7 +123,20 @@ public class ChatStreamOrchestrator {
         final Long sid = session.getId();
 
         // 3. Compute visible document IDs from knowledge-service (uses current JWT identity).
-        final List<Long> visibleDocIds = fetchVisibleDocIds(effectiveKnowledgeBaseId, authorization, traceId);
+        final List<RagDtos.KnowledgeScope> knowledgeScopes;
+        try {
+            knowledgeScopes = effectiveKnowledgeBaseIds.stream()
+                    .map(knowledgeBaseId -> new RagDtos.KnowledgeScope(
+                            knowledgeBaseId, fetchVisibleDocIds(knowledgeBaseId, authorization, traceId)))
+                    .filter(scope -> !scope.visible_document_ids().isEmpty())
+                    .toList();
+        } catch (KnowledgeScopeException exception) {
+            return Flux.just(RagDtos.errorEvent(exception.code, exception.getMessage()));
+        }
+        if (!effectiveKnowledgeBaseIds.isEmpty() && knowledgeScopes.isEmpty()) {
+            return Flux.just(RagDtos.errorEvent("NO_SEARCHABLE_DOCUMENTS",
+                    "已绑定知识库中没有已发布且入库成功的可见文档，请先发布文档或等待入库完成"));
+        }
 
         // 4. Transactional prepare: atomically persist USER message + ASSISTANT placeholder.
         // If clientRequestId duplicates an existing user message, do NOT create a new assistant
@@ -159,14 +168,22 @@ public class ChatStreamOrchestrator {
         // 6. Acquire concurrency lock, connect to RAG, persist result, release lock — all terminal
         //    paths release the lock.
         Flux<ServerSentEvent<Object>> body = streamWithLock(sid, assistantMessageId, userId,
-                question, effectiveKnowledgeBaseId, visibleDocIds);
+                question, knowledgeScopes);
 
         return header.concatWith(body);
     }
 
+    /** Backward-compatible adapter for clients/tests using the former single-KB contract. */
+    public Flux<ServerSentEvent<Object>> stream(
+            Long sessionId, Long knowledgeBaseId, String question, String clientRequestId,
+            Long userId, String authorization, String traceId) {
+        return stream(sessionId, knowledgeBaseId == null ? List.of() : List.of(knowledgeBaseId),
+                question, clientRequestId, userId, authorization, traceId);
+    }
+
     private Flux<ServerSentEvent<Object>> streamWithLock(
             Long sessionId, Long assistantMessageId, Long userId,
-            String question, Long knowledgeBaseId, List<Long> visibleDocIds) {
+            String question, List<RagDtos.KnowledgeScope> knowledgeScopes) {
 
         String token = concurrencyLock.tryAcquire(userId);
         if (token == null) {
@@ -182,7 +199,14 @@ public class ChatStreamOrchestrator {
         final AtomicBoolean doneReceived = new AtomicBoolean(false);
         final AtomicBoolean errorReceived = new AtomicBoolean(false);
 
-        return ragStreamService.stream(question, knowledgeBaseId, visibleDocIds, sessionId)
+        Flux<ServerSentEvent<Object>> ragFlux = knowledgeScopes.size() <= 1
+                ? ragStreamService.stream(
+                        question,
+                        knowledgeScopes.isEmpty() ? null : knowledgeScopes.get(0).knowledge_base_id(),
+                        knowledgeScopes.isEmpty() ? List.of() : knowledgeScopes.get(0).visible_document_ids(),
+                        sessionId)
+                : ragStreamService.stream(question, knowledgeScopes, sessionId);
+        return ragFlux
                 .doOnNext(event -> {
                     String evt = event.event();
                     Object data = event.data();
@@ -245,12 +269,29 @@ public class ChatStreamOrchestrator {
             }
             log.warn("Knowledge visible-document-ids returned non-success for kb={}: {}",
                     knowledgeBaseId, response != null ? response.code() : "null");
-            return List.of();
+            String responseCode = response != null ? response.code() : null;
+            if ("FORBIDDEN".equals(responseCode) || "UNAUTHENTICATED".equals(responseCode)) {
+                throw new KnowledgeScopeException("KNOWLEDGE_SCOPE_FORBIDDEN", "无权检索所绑定的知识库");
+            }
+            throw new KnowledgeScopeException("KNOWLEDGE_SCOPE_UNAVAILABLE", "知识库检索范围暂时不可用，请稍后重试");
         } catch (Exception e) {
-            // Knowledge 401/403/service-unavailable must NOT be silently turned into "no permission".
-            // Return empty list but log at WARN so it is observable.
+            if (e instanceof KnowledgeScopeException scopeException) throw scopeException;
+            if (e instanceof FeignException feignException
+                    && (feignException.status() == 401 || feignException.status() == 403)) {
+                log.warn("Knowledge visibility denied for kb={}: HTTP {}", knowledgeBaseId, feignException.status());
+                throw new KnowledgeScopeException("KNOWLEDGE_SCOPE_FORBIDDEN", "无权检索所绑定的知识库");
+            }
             log.warn("Failed to fetch visible document ids for kb={}: {}", knowledgeBaseId, e.getMessage());
-            return List.of();
+            throw new KnowledgeScopeException("KNOWLEDGE_SCOPE_UNAVAILABLE", "知识库检索范围暂时不可用，请稍后重试");
+        }
+    }
+
+    private static final class KnowledgeScopeException extends RuntimeException {
+        private final String code;
+
+        private KnowledgeScopeException(String code, String message) {
+            super(message);
+            this.code = code;
         }
     }
 

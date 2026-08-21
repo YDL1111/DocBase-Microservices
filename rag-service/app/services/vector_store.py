@@ -2,6 +2,7 @@
 Vector store service using ChromaDB.
 """
 import os
+from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 
 from langchain_chroma import Chroma
@@ -12,6 +13,16 @@ from app.core.logging import get_logger
 from app.services.embedding import embedding_service
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class ScoredDocument:
+    """A retrieved chunk with its first-stage relevance and stored embedding."""
+
+    document: Document
+    relevance_score: float
+    distance: float
+    embedding: tuple[float, ...]
 
 
 class VectorStoreService:
@@ -34,7 +45,7 @@ class VectorStoreService:
 
             self._collections[collection_name] = Chroma(
                 collection_name=collection_name,
-                embedding_function=embedding_service.model,
+                embedding_function=embedding_service,
                 persist_directory=settings.CHROMA_PERSIST_DIR,
             )
 
@@ -69,10 +80,6 @@ class VectorStoreService:
                 f"Rejecting stale version: doc {document_id} incoming v{version_id} < current v{current_max_version}")
             return 0  # Do not write stale version
 
-        # Delete only versions older than the incoming version (clean up old data).
-        if version_id > 1:
-            self.delete_versions_older_than(knowledge_base_id, document_id, version_id)
-
         if not chunks:
             return 0
 
@@ -87,13 +94,63 @@ class VectorStoreService:
             })
             # Deterministic ID for idempotency
             chunk_id = f"kb{knowledge_base_id}_doc{document_id}_v{version_id}_chunk{idx}"
+            chunk.metadata["chunk_id"] = chunk_id
             ids.append(chunk_id)
 
         # Add documents with explicit IDs
         collection.add_documents(documents=chunks, ids=ids)
 
+        # Recheck after the write. A newer version may have arrived between the
+        # optimistic pre-check and this upsert on another worker.
+        current_max_version = self._get_max_version_id(collection, document_id)
+        if current_max_version is not None and version_id < current_max_version:
+            self._delete_version_chunks(collection, document_id, version_id)
+            logger.warning(
+                "Discarded concurrently superseded version: doc %d incoming v%d < current v%d",
+                document_id, version_id, current_max_version,
+            )
+            return 0
+
+        self._delete_stale_chunk_ids(collection, document_id, version_id, set(ids))
+
+        # Keep the previous searchable version until the new write has completed.
+        if version_id > 1:
+            self.delete_versions_older_than(knowledge_base_id, document_id, version_id)
+
         logger.info(f"Upserted {len(chunks)} chunks for doc {document_id} v{version_id}")
         return len(chunks)
+
+    @staticmethod
+    def _delete_stale_chunk_ids(collection, document_id: int, version_id: int,
+                                current_ids: set[str]) -> int:
+        """Remove trailing chunks left by an older split of the same version."""
+        existing = collection.get(where={
+            "$and": [
+                {"document_id": {"$eq": document_id}},
+                {"version_id": {"$eq": version_id}},
+            ]
+        })
+        stale_ids = [chunk_id for chunk_id in existing.get("ids", []) if chunk_id not in current_ids]
+        if stale_ids:
+            collection.delete(ids=stale_ids)
+            logger.info(
+                "Deleted %d stale chunks after re-splitting doc %d v%d",
+                len(stale_ids), document_id, version_id,
+            )
+        return len(stale_ids)
+
+    @staticmethod
+    def _delete_version_chunks(collection, document_id: int, version_id: int) -> int:
+        result = collection.get(where={
+            "$and": [
+                {"document_id": {"$eq": document_id}},
+                {"version_id": {"$eq": version_id}},
+            ]
+        })
+        ids = result.get("ids", [])
+        if ids:
+            collection.delete(ids=ids)
+        return len(ids)
 
     def _get_max_version_id(self, collection, document_id: int) -> int | None:
         """Get the highest version_id currently stored for a document, or None if no chunks exist."""
@@ -102,6 +159,23 @@ class VectorStoreService:
         if not metadatas:
             return None
         return max((m.get("version_id", 0) for m in metadatas), default=None)
+
+    @staticmethod
+    def _get_max_versions(collection, document_ids: set[int]) -> dict[int, int]:
+        if not document_ids:
+            return {}
+        result = collection.get(
+            where={"document_id": {"$in": sorted(document_ids)}},
+            include=["metadatas"],
+        )
+        max_versions: dict[int, int] = {}
+        for metadata in result.get("metadatas", []):
+            document_id = metadata.get("document_id")
+            version_id = metadata.get("version_id", 0)
+            if document_id is None:
+                continue
+            max_versions[document_id] = max(max_versions.get(document_id, 0), version_id)
+        return max_versions
 
     def delete_versions_older_than(self, knowledge_base_id: int, document_id: int,
                                     min_version: int) -> int:
@@ -169,8 +243,16 @@ class VectorStoreService:
 
     def search(self, knowledge_base_id: int, query: str,
                visible_document_ids: List[int], top_k: int = None) -> List[Document]:
+        """Backward-compatible document-only search."""
+        return [candidate.document for candidate in self.search_candidates(
+            knowledge_base_id, query, visible_document_ids, top_k
+        )]
+
+    def search_candidates(self, knowledge_base_id: int, query: str,
+                          visible_document_ids: List[int],
+                          candidate_k: int = None) -> List[ScoredDocument]:
         """
-        Search for relevant chunks, filtered by visible document IDs.
+        Search candidate chunks and preserve relevance scores and embeddings.
 
         Only returns chunks from the latest version of each document to prevent
         stale version data from being retrieved.
@@ -179,10 +261,10 @@ class VectorStoreService:
             knowledge_base_id: The knowledge base to search in
             query: The search query
             visible_document_ids: List of document IDs the user can access (required)
-            top_k: Number of results to return
+            candidate_k: Number of first-stage candidates to return
 
         Returns:
-            List of relevant document chunks
+            Scored candidate chunks for global ranking and MMR
         """
         if not visible_document_ids:
             # Empty list means no visible documents - return empty results
@@ -192,8 +274,7 @@ class VectorStoreService:
         if len(visible_document_ids) > 1000:
             visible_document_ids = visible_document_ids[:1000]
 
-        # Limit top_k to prevent abuse
-        top_k = min(top_k or settings.TOP_K, 50)
+        candidate_k = min(candidate_k or settings.RETRIEVAL_CANDIDATE_K, 100)
 
         collection = self._get_collection(knowledge_base_id)
 
@@ -205,36 +286,57 @@ class VectorStoreService:
             ]
         }
 
-        # Retrieve more results than needed to allow for version filtering
-        results = collection.similarity_search_with_score(
-            query, k=top_k * 3, filter=where_filter
+        query_embedding = embedding_service.embed_query(query)
+        raw_results = collection._collection.query(
+            query_embeddings=[query_embedding],
+            n_results=candidate_k * 3,
+            where=where_filter,
+            include=["documents", "metadatas", "distances", "embeddings"],
         )
 
-        # First, find the maximum version for each document
-        doc_max_version = {}
-        for doc, score in results:
-            doc_id = doc.metadata.get("document_id")
-            version_id = doc.metadata.get("version_id", 0)
+        ids = (raw_results.get("ids") or [[]])[0]
+        documents = (raw_results.get("documents") or [[]])[0]
+        metadatas = (raw_results.get("metadatas") or [[]])[0]
+        distances = (raw_results.get("distances") or [[]])[0]
+        embeddings = raw_results.get("embeddings")
+        embeddings = embeddings[0] if embeddings is not None and len(embeddings) else []
 
-            if doc_id not in doc_max_version or version_id > doc_max_version[doc_id]:
-                doc_max_version[doc_id] = version_id
+        candidates: list[ScoredDocument] = []
+        for index, text in enumerate(documents):
+            metadata = dict(metadatas[index] or {})
+            if index < len(ids):
+                metadata.setdefault("chunk_id", ids[index])
+            distance = float(distances[index]) if index < len(distances) else float("inf")
+            embedding = embeddings[index] if index < len(embeddings) else []
+            candidates.append(ScoredDocument(
+                document=Document(page_content=text or "", metadata=metadata),
+                relevance_score=1.0 / (1.0 + max(distance, 0.0)),
+                distance=distance,
+                embedding=tuple(float(value) for value in embedding),
+            ))
+
+        candidate_document_ids = {
+            candidate.document.metadata.get("document_id") for candidate in candidates
+            if isinstance(candidate.document.metadata.get("document_id"), int)
+        }
+        # Resolve latest versions independently of semantic candidates. Querying
+        # after the vector search prevents a concurrently inserted newer version
+        # from making an older candidate look current.
+        doc_max_version = self._get_max_versions(collection, candidate_document_ids)
 
         # Filter to only include chunks from the latest version of each document
         latest_version_chunks = []
-        for doc, score in results:
-            doc_id = doc.metadata.get("document_id")
-            version_id = doc.metadata.get("version_id", 0)
+        for candidate in candidates:
+            doc_id = candidate.document.metadata.get("document_id")
+            version_id = candidate.document.metadata.get("version_id", 0)
 
             # Only keep chunks from the latest version
             if version_id == doc_max_version.get(doc_id, 0):
-                latest_version_chunks.append((doc, score))
+                latest_version_chunks.append(candidate)
 
-        # Sort by score (ascending for distance, descending for similarity)
-        # Chroma returns cosine distance by default (smaller = more similar)
-        latest_version_chunks.sort(key=lambda x: x[1])
+        latest_version_chunks.sort(key=lambda item: item.relevance_score, reverse=True)
 
-        # Return top_k results
-        return [doc for doc, score in latest_version_chunks[:top_k]]
+        return latest_version_chunks[:candidate_k]
 
 
 # Singleton instance

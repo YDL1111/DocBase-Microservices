@@ -2,10 +2,13 @@ package com.docbase.chat.session.domain;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @TableName("ai_chat_session")
 public class ChatSession {
@@ -16,6 +19,10 @@ public class ChatSession {
     private Long userId;
 
     private Long knowledgeBaseId;
+
+    /** Effective bindings. Stored in ai_chat_session_knowledge_base, not this table. */
+    @TableField(exist = false)
+    private List<Long> knowledgeBaseIds = new ArrayList<>();
 
     private String title;
 
@@ -34,6 +41,10 @@ public class ChatSession {
     public void setUserId(Long userId) { this.userId = userId; }
     public Long getKnowledgeBaseId() { return knowledgeBaseId; }
     public void setKnowledgeBaseId(Long knowledgeBaseId) { this.knowledgeBaseId = knowledgeBaseId; }
+    public List<Long> getKnowledgeBaseIds() { return knowledgeBaseIds; }
+    public void setKnowledgeBaseIds(List<Long> knowledgeBaseIds) {
+        this.knowledgeBaseIds = knowledgeBaseIds == null ? new ArrayList<>() : new ArrayList<>(knowledgeBaseIds);
+    }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public Integer getStatus() { return status; }

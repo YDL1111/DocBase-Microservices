@@ -21,6 +21,7 @@ import type {
   KnowledgeDocument,
   DocumentQuery,
   UploadDocumentRequest,
+  UpdateDocumentRequest,
   KnowledgeMember,
   AddMemberRequest,
   UpdateMemberRequest
@@ -141,6 +142,19 @@ export function getDocument(documentId: number): Promise<KnowledgeDocument> {
   return http.get<KnowledgeDocument>(`/api/knowledge/documents/${documentId}`);
 }
 
+/** Fetches authorized binary content through Gateway for preview/download. */
+export function getDocumentContent(documentId: number): Promise<Blob> {
+  return http.get<Blob>(`/api/knowledge/documents/${documentId}/content`, { responseType: "blob", timeout: DOCUMENT_UPLOAD_TIMEOUT });
+}
+
+export function updateDocument(documentId: number, data: UpdateDocumentRequest): Promise<void> {
+  return http.put<void>(`/api/knowledge/documents/${documentId}`, data);
+}
+
+export function reingestDocument(documentId: number): Promise<void> {
+  return http.post<void>(`/api/knowledge/documents/${documentId}/reingest`);
+}
+
 /** 删除文档 */
 export function deleteDocument(documentId: number): Promise<void> {
   return http.delete<void>(`/api/knowledge/documents/${documentId}`);
@@ -167,6 +181,7 @@ export function uploadDocument(
   if (request.title !== undefined) formData.append("title", request.title);
   if (request.folderId !== undefined) formData.append("folderId", String(request.folderId));
   if (request.visibility !== undefined) formData.append("visibility", String(request.visibility));
+  if (request.publishForChat !== undefined) formData.append("publishForChat", String(request.publishForChat));
 
   return http.post<number>(
     `/api/knowledge/bases/${knowledgeBaseId}/documents/upload`,

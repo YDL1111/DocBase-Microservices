@@ -17,6 +17,11 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -53,6 +58,32 @@ public class KnowledgeDocumentController {
             @PathVariable Long documentId,
             @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
         return ApiResponse.success(documentService.getById(documentId, principal.userId(), principal.admin()));
+    }
+
+    @GetMapping("/documents/{documentId}/content")
+    @PreAuthorize("hasAuthority('knowledge:document:list') or hasAuthority('admin:all')")
+    public ResponseEntity<InputStreamResource> content(
+            @PathVariable Long documentId,
+            @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
+        KnowledgeDocumentService.DocumentContent content = documentService.openContent(
+                documentId, principal.userId(), principal.admin());
+        KnowledgeDocument document = content.document();
+        MediaType mediaType;
+        try {
+            mediaType = MediaType.parseMediaType(document.getContentType());
+        } catch (Exception ignored) {
+            mediaType = MediaType.APPLICATION_OCTET_STREAM;
+        }
+        String filename = document.getOriginalFilename() == null ? "document" : document.getOriginalFilename();
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok()
+                .contentType(mediaType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline()
+                        .filename(filename, StandardCharsets.UTF_8).build().toString())
+                .header("X-Content-Type-Options", "nosniff");
+        if (document.getFileSize() != null && document.getFileSize() >= 0) {
+            response.contentLength(document.getFileSize());
+        }
+        return response.body(new InputStreamResource(content.inputStream()));
     }
 
     /**
@@ -100,10 +131,11 @@ public class KnowledgeDocumentController {
             @RequestParam(required = false) String title,
             @RequestParam(required = false) Long folderId,
             @RequestParam(required = false) Integer visibility,
+            @RequestParam(defaultValue = "true") boolean publishForChat,
             @RequestParam String clientRequestId,
             @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
         return ApiResponse.success(uploadService.upload(knowledgeBaseId, file, title, folderId, visibility,
-                clientRequestId, principal.userId(), principal.admin()));
+                publishForChat, clientRequestId, principal.userId(), principal.admin()));
     }
 
     @PutMapping("/documents/{documentId}")
@@ -118,6 +150,15 @@ public class KnowledgeDocumentController {
         updates.setVisibility(request.visibility());
         updates.setStatus(request.status());
         documentService.update(documentId, updates, principal.userId(), principal.admin());
+        return ApiResponse.success(null);
+    }
+
+    @PostMapping("/documents/{documentId}/reingest")
+    @PreAuthorize("hasAuthority('knowledge:document:update') or hasAuthority('admin:all')")
+    public ApiResponse<Void> reingest(
+            @PathVariable Long documentId,
+            @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
+        documentService.reingest(documentId, principal.userId(), principal.admin());
         return ApiResponse.success(null);
     }
 

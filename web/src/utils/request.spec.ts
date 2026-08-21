@@ -157,7 +157,7 @@ describe("shared refresh across Axios and SSE", () => {
       config: { url: "/api/orders", headers: { set: vi.fn() } }
     });
     const streamRequest = streamChat(
-      { sessionId: 1, knowledgeBaseId: null, question: "q", clientRequestId: "id" },
+      { sessionId: 1, knowledgeBaseIds: [], question: "q", clientRequestId: "id" },
       { onEvent: vi.fn() }
     );
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());

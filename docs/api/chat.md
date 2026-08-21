@@ -9,6 +9,7 @@ AI 会话管理 + RAG 流式问答。所有路由经 Gateway `/api/ai/**` 到达
 | GET /api/ai/chat/sessions | `ai:chat:list` 或 `admin:all` |
 | POST /api/ai/chat/sessions | `ai:chat:list` 或 `admin:all` |
 | GET /api/ai/chat/sessions/{sessionId}/messages | `ai:chat:list` 或 `admin:all` |
+| DELETE /api/ai/chat/sessions/{sessionId}/messages/{messageId} | `ai:chat:list` 或 `admin:all` |
 | DELETE /api/ai/chat/sessions/{sessionId} | `ai:chat:list` 或 `admin:all` |
 | POST /api/ai/chat/stream | `ai:chat:query` 或 `admin:all` |
 | POST /api/ai/chat/query | 暂不支持（返回 NOT_IMPLEMENTED） |
@@ -20,6 +21,7 @@ admin:all 满足菜单权限，但**不能**读取/删除其他用户的私人�
 - userId 仅来自已验证的 JWT Principal，不接受客户端传入
 - visibleDocumentIds 完全由 knowledge-service 根据 JWT 身份计算
 - 每次读写会话/消息都使用 `sessionId + currentUserId` 联合校验
+- 删除单条消息只允许删除当前用户会话内已结束的助手回复；不会连带删除用户问题，用户消息或其他会话的消息统一拒绝
 - 已有会话使用其存储的 knowledgeBaseId，不信任请求中的 KB ID
 - RAG API Key 仅通过环境变量注入，日志中不输出
 

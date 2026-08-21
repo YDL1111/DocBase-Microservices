@@ -4,7 +4,7 @@ import { streamChat, type ChatStreamEvent, ChatStreamClientError } from "./chat-
 import { __resetTokenRefreshForTests } from "@/utils/token-refresh";
 
 const encoder = new TextEncoder();
-const request = { sessionId: 1, knowledgeBaseId: null, question: "question", clientRequestId: "request-id" };
+const request = { sessionId: 1, knowledgeBaseIds: [] as number[], question: "question", clientRequestId: "request-id" };
 
 function response(chunks: string[], options: { status?: number; contentType?: string; body?: ReadableStream<Uint8Array> | null } = {}): Response {
   const body = options.body === undefined
@@ -44,6 +44,14 @@ describe("streamChat", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(request);
     expect(events.map(event => event.type)).toEqual(["session", "token", "sources", "done"]);
     expect(events[2]).toEqual({ type: "sources", data: [{ document_id: 1, file_name: "x.pdf", page: 3 }] });
+  });
+
+  it("allows a new general chat request without a knowledge base", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(['data: {"type":"done","data":null}\n\n']));
+    vi.stubGlobal("fetch", fetchMock);
+    const generalRequest = { ...request, sessionId: null, knowledgeBaseIds: [] };
+    await expect(streamChat(generalRequest, { onEvent: vi.fn() })).resolves.toEqual({ terminal: "done" });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(generalRequest);
   });
 
   it("preserves a UTF-8 character split across real Uint8Array chunks", async () => {

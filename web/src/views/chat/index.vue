@@ -2,17 +2,19 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { onBeforeRouteLeave } from "vue-router";
 import { ElMessageBox } from "element-plus";
-import { createChatSession, deleteChatSession, listChatMessages, listChatSessions } from "@/api/chat";
+import { createChatSession, deleteChatMessage, deleteChatSession, listChatMessages, listChatSessions, replaceChatSessionKnowledgeBases } from "@/api/chat";
 import { listKnowledgeBases } from "@/api/knowledge";
-import type { ChatSession, CreateChatSessionRequest, KnowledgeBase } from "@/api/types";
+import { ChatMessageRole, type ChatSession, type CreateChatSessionRequest, type KnowledgeBase } from "@/api/types";
 import { message } from "@/utils/message";
 import { useUserStoreHook } from "@/store/modules/user";
 import { useChatStream } from "./composables/use-chat-stream";
 import { toChatViewMessage, RecoveryStatus, type ChatViewMessage } from "./chat-ui";
+import { answerBody } from "./chat-markdown";
 import SessionList from "./components/session-list.vue";
 import MessageHistory from "./components/message-history.vue";
 import ChatComposer from "./components/chat-composer.vue";
 import CreateSessionDialog from "./components/create-session-dialog.vue";
+import KnowledgeBindingDialog from "./components/knowledge-binding-dialog.vue";
 
 defineOptions({ name: "AiChat" });
 
@@ -24,7 +26,10 @@ const sessionLoading = ref(false);
 const messageLoading = ref(false);
 const creating = ref(false);
 const deletingSessionId = ref<number | null>(null);
+const deletingMessageId = ref<number | null>(null);
 const createVisible = ref(false);
+const bindingVisible = ref(false);
+const bindingSaving = ref(false);
 const knowledgeBases = ref<KnowledgeBase[]>([]);
 const loadingKnowledgeBases = ref(false);
 const pagination = reactive({ current: 1, size: 20, total: 0 });
@@ -40,6 +45,7 @@ let refreshInFlight = false;
 let refreshOwner = 0;
 let messageLoadingOwner = 0;
 let pendingManualRefresh = false;
+const deletedSessionIds = new Set<number>();
 
 function currentSession(sessionId: number): boolean { return mounted && selectedSessionId.value === sessionId; }
 function clearMessages(): void { messages.value = []; }
@@ -47,6 +53,14 @@ function invalidateHistory(): void { ++messageSequence; }
 function selectedSession(): ChatSession | undefined { return sessions.value.find(item => item.id === selectedSessionId.value); }
 const canQuery = computed(() => userStore.hasPermission("ai:chat:query"));
 const activeSession = computed(() => selectedSession());
+const activeKnowledgeBaseIds = computed(() => activeSession.value?.knowledgeBaseIds
+  ?? (activeSession.value?.knowledgeBaseId ? [activeSession.value.knowledgeBaseId] : []));
+const activeKnowledgeBaseLabel = computed(() => {
+  const ids = activeKnowledgeBaseIds.value;
+  if (ids.length === 0) return "通用 AI 对话";
+  if (ids.length === 1) return knowledgeBases.value.find(base => base.id === ids[0])?.name ?? `知识库 ${ids[0]}`;
+  return `${ids.length} 个知识库`;
+});
 
 const chatStream = useChatStream({
   messages,
@@ -62,9 +76,38 @@ const canSend = computed(() => {
     && !chatStream.serverBusy.value
     && !messageLoading.value
     && !!session
-    && Number.isSafeInteger(session.knowledgeBaseId)
-    && (session.knowledgeBaseId ?? 0) > 0;
+    && Number.isSafeInteger(session.id)
+    && session.id > 0
+    && (session.knowledgeBaseIds ?? (session.knowledgeBaseId ? [session.knowledgeBaseId] : []))
+      .every(id => Number.isSafeInteger(id) && id > 0);
 });
+
+async function openKnowledgeBinding(): Promise<void> {
+  if (!activeSession.value || chatStream.streaming.value || bindingSaving.value) return;
+  const targetId = activeSession.value.id;
+  await loadKnowledgeBases();
+  if (mounted && selectedSessionId.value === targetId && activeSession.value?.id === targetId) {
+    bindingVisible.value = true;
+  }
+}
+
+async function saveKnowledgeBinding(knowledgeBaseIds: number[]): Promise<void> {
+  const targetId = selectedSessionId.value;
+  if (targetId === null || bindingSaving.value || chatStream.streaming.value) return;
+  bindingSaving.value = true;
+  try {
+    const updated = await replaceChatSessionKnowledgeBases(targetId, knowledgeBaseIds);
+    if (!mounted || selectedSessionId.value !== targetId) return;
+    const index = sessions.value.findIndex(item => item.id === targetId);
+    if (index >= 0) sessions.value[index] = updated;
+    bindingVisible.value = false;
+    message.success(knowledgeBaseIds.length ? "会话知识库已更新" : "已切换为通用 AI 对话");
+  } catch {
+    // Request layer displays the safe error.
+  } finally {
+    if (mounted) bindingSaving.value = false;
+  }
+}
 
 function refreshMessages(): void {
   const sessionId = selectedSessionId.value;
@@ -146,17 +189,18 @@ async function loadSessions(force = false): Promise<void> {
   try {
     const result = await listChatSessions(current, size);
     if (!mounted || sequence !== listSequence || current !== pagination.current || size !== pagination.size) return;
-    sessions.value = result.records;
-    pagination.total = result.total;
+    const visibleRecords = result.records.filter(item => !deletedSessionIds.has(item.id));
+    sessions.value = visibleRecords;
+    pagination.total = Math.max(0, result.total - (result.records.length - visibleRecords.length));
     if (pendingSelectedSessionId !== null) {
       const targetSessionId = pendingSelectedSessionId;
-      if (result.records.some(item => item.id === targetSessionId)) {
+      if (visibleRecords.some(item => item.id === targetSessionId)) {
         pendingSelectedSessionId = null;
         if (selectedSessionId.value !== targetSessionId) void selectSession(targetSessionId, "automatic");
       } else if (!pendingListRefresh) {
         pendingSelectedSessionId = null;
       }
-    } else if (selectedSessionId.value !== null && !result.records.some(item => item.id === selectedSessionId.value)) {
+    } else if (selectedSessionId.value !== null && !visibleRecords.some(item => item.id === selectedSessionId.value)) {
       chatStream.cancel("session-change");
       selectedSessionId.value = null;
       invalidateHistory();
@@ -173,6 +217,9 @@ async function loadSessions(force = false): Promise<void> {
 }
 
 async function selectSession(sessionId: number, source: "user" | "automatic" = "user"): Promise<void> {
+  // The binding dialog edits the currently selected session. Keep that target stable
+  // until the dialog is closed so selections cannot leak from session A into session B.
+  if ((bindingVisible.value || bindingSaving.value) && selectedSessionId.value !== sessionId) return;
   if (source === "user" && pendingSelectedSessionId !== null && sessionId !== pendingSelectedSessionId) pendingSelectedSessionId = null;
   if (selectedSessionId.value === sessionId && !messageLoading.value) return;
   if (selectedSessionId.value !== sessionId) {
@@ -251,6 +298,7 @@ async function removeSession(session: ChatSession): Promise<void> {
   }
   try {
     if (selectedSessionId.value === targetSessionId) chatStream.cancel("session-delete");
+    deletedSessionIds.add(targetSessionId);
     await deleteChatSession(targetSessionId);
     if (!mounted) return;
     const wasSelected = selectedSessionId.value === targetSessionId;
@@ -267,8 +315,50 @@ async function removeSession(session: ChatSession): Promise<void> {
     void loadSessions(true);
     message.success("会话已删除。");
   } catch {
+    deletedSessionIds.delete(targetSessionId);
     // The request layer has already displayed a safe error message.
   } finally { if (mounted && deletingSessionId.value === targetSessionId) deletingSessionId.value = null; }
+}
+
+async function copyMessage(item: ChatViewMessage): Promise<void> {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+    const text = item.role === ChatMessageRole.ASSISTANT ? answerBody(item.content) : item.content;
+    await navigator.clipboard.writeText(text);
+    if (mounted) message.success("消息已复制");
+  } catch {
+    if (mounted) message.error("复制失败，请检查浏览器剪贴板权限。");
+  }
+}
+
+function resendMessage(item: ChatViewMessage): void {
+  if (item.role !== ChatMessageRole.USER || item.sessionId !== selectedSessionId.value || !canSend.value) return;
+  chatStream.send(item.content, selectedSession());
+}
+
+async function removeAssistantMessage(item: ChatViewMessage): Promise<void> {
+  if (item.role !== ChatMessageRole.ASSISTANT || typeof item.id !== "number" || deletingMessageId.value !== null) return;
+  const targetSessionId = selectedSessionId.value;
+  const targetMessageId = item.id;
+  if (targetSessionId === null || item.sessionId !== targetSessionId || chatStream.streaming.value) return;
+  deletingMessageId.value = targetMessageId;
+  try {
+    await ElMessageBox.confirm("确定删除这条 AI 回复吗？此操作不会删除对应的问题。", "删除回复", { type: "warning" });
+  } catch {
+    if (mounted && deletingMessageId.value === targetMessageId) deletingMessageId.value = null;
+    return;
+  }
+  try {
+    await deleteChatMessage(targetSessionId, targetMessageId);
+    if (!currentSession(targetSessionId)) return;
+    messages.value = messages.value.filter(messageItem => messageItem.id !== targetMessageId);
+    message.success("AI 回复已删除");
+    await forceHistoryRefresh(targetSessionId);
+  } catch {
+    // The request layer has already displayed a safe error message.
+  } finally {
+    if (mounted && deletingMessageId.value === targetMessageId) deletingMessageId.value = null;
+  }
 }
 
 function sendQuestion(): void {
@@ -302,10 +392,18 @@ onUnmounted(() => {
           <span class="chat-workspace__eyebrow">知识库智能助手</span>
           <h1>{{ activeSession?.title?.trim() || "知识问答" }}</h1>
         </div>
-        <span class="knowledge-status" :class="{ muted: !activeSession?.knowledgeBaseId }">
+        <button
+          class="knowledge-status"
+          :class="{ muted: activeKnowledgeBaseIds.length === 0 }"
+          type="button"
+          :disabled="!activeSession || chatStream.streaming.value || bindingSaving"
+          title="调整当前会话的知识库"
+          @click="openKnowledgeBinding"
+        >
           <i />
-          {{ activeSession?.knowledgeBaseId ? `知识库 ${activeSession.knowledgeBaseId}` : "未绑定知识库" }}
-        </span>
+          {{ activeKnowledgeBaseLabel }}
+          <span class="knowledge-status__edit">调整</span>
+        </button>
       </header>
       <MessageHistory
         :messages="messages"
@@ -316,14 +414,19 @@ onUnmounted(() => {
         :cancelling="chatStream.cancelling.value"
         :draining="chatStream.draining.value"
         :can-accept-input="chatStream.canAcceptInput.value"
+        :deleting-message-id="deletingMessageId"
         :attempt="chatStream.attempt.value"
         @refresh="refreshMessages"
         @retry="retryAttempt"
         @recheck="recheckAttempt"
+        @copy="copyMessage"
+        @delete="removeAssistantMessage"
+        @resend="resendMessage"
       />
       <ChatComposer v-model="question" :streaming="chatStream.streaming.value" :can-send="canSend" :max-length="4000" @send="sendQuestion" @stop="chatStream.cancel('user')" />
     </section>
     <CreateSessionDialog v-model="createVisible" :knowledge-bases="knowledgeBases" :loading-knowledge-bases="loadingKnowledgeBases" :creating="creating" @opened="loadKnowledgeBases" @create="createSession" />
+    <KnowledgeBindingDialog v-model="bindingVisible" :knowledge-bases="knowledgeBases" :selected-ids="activeKnowledgeBaseIds" :loading="loadingKnowledgeBases" :saving="bindingSaving" @save="saveKnowledgeBinding" />
   </main>
 </template>
 
@@ -390,7 +493,13 @@ onUnmounted(() => {
   background: #eef6fb;
   border-radius: 6px;
   white-space: nowrap;
+  border: 0;
+  cursor: pointer;
 }
+
+.knowledge-status:not(:disabled):hover { background: #e2f0f9; color: #245f8d; }
+.knowledge-status:disabled { cursor: default; opacity: 0.7; }
+.knowledge-status__edit { padding-left: 2px; color: #2b78b8; font-weight: 600; }
 
 .knowledge-status i {
   width: 7px;

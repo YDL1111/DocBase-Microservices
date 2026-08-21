@@ -9,7 +9,7 @@ docbase:
       max-response-length: 65536
     rag:
       top-k: 5
-      model: keep-existing-deepseek-model
+      model: ${CHAT_MODEL:gpt-4o-mini}
       embedding-model: BAAI/bge-m3
       connect-timeout: 5s
       idle-timeout: 120s

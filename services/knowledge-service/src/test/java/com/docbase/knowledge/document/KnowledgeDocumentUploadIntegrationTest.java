@@ -181,6 +181,7 @@ class KnowledgeDocumentUploadIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data").value(documentId));
 
         KnowledgeDocument document = documentMapper.selectById(documentId);
+        assertThat(document.getStatus()).isEqualTo(2);
         assertThat(document.getObjectKey()).matches("knowledge/" + baseId + "/\\d{4}/\\d{2}/[0-9a-f-]{36}/file\\.pdf");
         assertThat(document.getChecksum()).hasSize(64);
         assertThat(documentCount(baseId)).isEqualTo(documentsBefore + 1);
@@ -201,6 +202,21 @@ class KnowledgeDocumentUploadIntegrationTest {
         assertThat(payload.path("objectKey").asText()).isEqualTo(document.getObjectKey());
         assertThat(payload.path("fileName").asText()).isEqualTo("file.pdf");
         assertThat(payload.path("contentType").asText()).isEqualTo("application/pdf");
+    }
+
+    @Test
+    void upload_CanExplicitlyKeepDocumentAsDraftAndPublishChoiceIsIdempotentMetadata() throws Exception {
+        Long baseId = createBase(42L);
+        String response = mockMvc.perform(upload(baseId, "draft-request").param("publishForChat", "false")
+                        .with(authentication(authWithCreate(42L))))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        Long documentId = objectMapper.readTree(response).path("data").asLong();
+        assertThat(documentMapper.selectById(documentId).getStatus()).isEqualTo(1);
+
+        mockMvc.perform(upload(baseId, "draft-request").param("publishForChat", "true")
+                        .with(authentication(authWithCreate(42L))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
     }
 
     @Test
@@ -334,7 +350,7 @@ class KnowledgeDocumentUploadIntegrationTest {
         try {
             return uploadService.upload(baseId,
                     new MockMultipartFile("file", "file.pdf", "application/pdf", new byte[] {1, 2, 3}),
-                    null, 0L, null, "concurrent-key", 81L, false);
+                    null, 0L, null, true, "concurrent-key", 81L, false);
         } catch (BusinessException exception) {
             return exception;
         }

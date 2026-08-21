@@ -235,7 +235,14 @@ public class IngestTaskService {
         task.setStatus(IngestTaskStatus.PENDING.name());
         task.setLastError(null);
         task.setNextRetryAt(null);
-        ingestTaskMapper.updateById(task);
+        // MyBatis-Plus skips null properties in updateById by default. Clear the
+        // previous failure explicitly so a retried/successful task never keeps a
+        // stale error message in the database.
+        ingestTaskMapper.update(null, new UpdateWrapper<IngestTask>()
+                .eq("id", taskId)
+                .set("status", IngestTaskStatus.PENDING.name())
+                .set("last_error", null)
+                .set("next_retry_at", null));
     }
 
     /**
@@ -386,7 +393,14 @@ public class IngestTaskService {
         task.setChunkCount(chunkCount);
         task.setFinishedAt(LocalDateTime.now());
         task.setLastError(null);
-        ingestTaskMapper.updateById(task);
+        task.setNextRetryAt(null);
+        ingestTaskMapper.update(null, new UpdateWrapper<IngestTask>()
+                .eq("id", taskId)
+                .set("status", IngestTaskStatus.SUCCEEDED.name())
+                .set("chunk_count", chunkCount)
+                .set("finished_at", task.getFinishedAt())
+                .set("last_error", null)
+                .set("next_retry_at", null));
 
         // Publish status event
         publishStatusEvent(task, IngestEvent.DOCUMENT_SUCCEEDED);

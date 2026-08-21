@@ -13,7 +13,7 @@ describe("knowledge multipart upload API", () => {
     const onUploadProgress = vi.fn();
 
     await expect(uploadDocument(7, {
-      file, clientRequestId: "attempt-1", title: "Report", folderId: 0, visibility: 3
+      file, clientRequestId: "attempt-1", title: "Report", folderId: 0, visibility: 3, publishForChat: true
     }, { onUploadProgress })).resolves.toBe(42);
 
     expect(post).toHaveBeenCalledOnce();
@@ -21,6 +21,7 @@ describe("knowledge multipart upload API", () => {
     expect(url).toBe("/api/knowledge/bases/7/documents/upload");
     expect(formData).toBeInstanceOf(FormData);
     expect(formData.get("file")).toBe(file);
+    expect(formData.get("publishForChat")).toBe("true");
     expect(formData.get("clientRequestId")).toBe("attempt-1");
     expect(formData.get("title")).toBe("Report");
     expect(formData.get("folderId")).toBe("0");

@@ -19,6 +19,7 @@ import {
   cancelIngestTask
 } from "@/api/ingest";
 import { message } from "@/utils/message";
+import { formatBackendDateTime } from "@/utils/date-time";
 import {
   ingestTaskStatusLabel,
   ingestTaskStatusTagType,
@@ -338,7 +339,9 @@ onUnmounted(() => {
         </template>
       </el-table-column>
       <el-table-column prop="attemptCount" label="重试次数" width="100" />
-      <el-table-column prop="createdAt" label="创建时间" width="180" />
+      <el-table-column label="创建时间" width="190">
+        <template #default="{ row }">{{ formatBackendDateTime(row.createdAt) }}</template>
+      </el-table-column>
       <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
           <el-button

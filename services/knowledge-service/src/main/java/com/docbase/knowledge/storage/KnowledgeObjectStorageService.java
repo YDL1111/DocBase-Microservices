@@ -3,6 +3,7 @@ package com.docbase.knowledge.storage;
 import com.docbase.common.core.BusinessException;
 import com.docbase.knowledge.config.MinioProperties;
 import io.minio.MinioClient;
+import io.minio.GetObjectArgs;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import org.slf4j.Logger;
@@ -40,6 +41,19 @@ public class KnowledgeObjectStorageService {
         } catch (Exception exception) {
             log.warn("Knowledge document object upload failed");
             throw new BusinessException("OBJECT_STORAGE_UPLOAD_FAILED", "File upload failed");
+        }
+    }
+
+    /** Opens an object stream for an authorized caller. The HTTP layer closes the stream. */
+    public InputStream openObject(String objectKey) {
+        try {
+            return minioClient.getObject(GetObjectArgs.builder()
+                    .bucket(properties.getBucket())
+                    .object(objectKey)
+                    .build());
+        } catch (Exception exception) {
+            log.warn("Knowledge document object download failed");
+            throw new BusinessException("OBJECT_STORAGE_READ_FAILED", "File preview is temporarily unavailable");
         }
     }
 

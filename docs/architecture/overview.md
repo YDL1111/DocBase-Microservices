@@ -59,7 +59,7 @@ Chroma 检索阶段过滤 chunk，无权限内容不进入 Prompt。该链路不
 ## 配置与秘密
 
 Nacos 保存超时、功能开关、限流和 RAG 参数；数据库密码、Nacos 密码、RabbitMQ 密码、
-MinIO Secret、JWT 私钥、内部 API Key 和 DeepSeek Key 仅通过环境变量或后续 Docker
+MinIO Secret、JWT 私钥、内部 API Key 和聊天模型 API Key 仅通过环境变量或后续 Docker
 Secrets 注入。仓库只包含 `.env.example` 占位值。
 
 Java 使用 `spring.config.import` 加载 `common.yaml` 与服务级 Data ID，不使用

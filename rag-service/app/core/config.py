@@ -50,19 +50,23 @@ class Settings(BaseSettings):
     HF_NORMALIZE_EMBEDDINGS: bool = True
     HF_LOCAL_FILES_ONLY: bool = True
     HF_HUB_OFFLINE: bool = True
+    HF_WARMUP_ON_STARTUP: bool = True
     TRANSFORMERS_OFFLINE: bool = True
     HF_HOME: str = "/cache/huggingface"
 
-    # LLM (DeepSeek)
-    DEEPSEEK_API_KEY: str = "replace-me"
-    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
-    DEEPSEEK_MODEL: str = "deepseek-chat"
+    # Chat model (any OpenAI-compatible provider)
+    CHAT_API_KEY: str = "replace-with-chat-api-key"
+    CHAT_BASE_URL: str = "https://api.openai.com/v1"
+    CHAT_MODEL: str = "gpt-4o-mini"
 
     # RAG
     CHUNK_SIZE: int = 800
-    CHUNK_OVERLAP: int = 120
+    CHUNK_OVERLAP: int = 100
     TOP_K: int = 8
-    RERANK_TOP_K: int = 5
+    RETRIEVAL_CANDIDATE_K: int = 24
+    RERANK_TOP_K: int = 8
+    MMR_LAMBDA: float = 0.7
+    NEAR_DUPLICATE_THRESHOLD: float = 0.92
     MAX_CONTEXT_LENGTH: int = 6000
 
     # Internal API Security
