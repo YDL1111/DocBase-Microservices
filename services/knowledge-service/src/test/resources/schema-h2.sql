@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
     name            VARCHAR(128) NOT NULL,
     description     VARCHAR(512) NOT NULL DEFAULT '',
     owner_id        BIGINT       NOT NULL,
+    organization_id BIGINT,
     visibility      TINYINT      NOT NULL DEFAULT 1,
     status          TINYINT      NOT NULL DEFAULT 1,
     sort_num        INT          NOT NULL DEFAULT 0,
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS knowledge_folder (
 CREATE TABLE IF NOT EXISTS knowledge_document (
     id                BIGINT        AUTO_INCREMENT PRIMARY KEY,
     knowledge_base_id BIGINT        NOT NULL,
+    organization_id   BIGINT,
     folder_id         BIGINT        NOT NULL DEFAULT 0,
     title             VARCHAR(256)  NOT NULL,
     original_filename VARCHAR(512)  NOT NULL DEFAULT '',

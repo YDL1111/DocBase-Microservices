@@ -91,6 +91,20 @@ public class KnowledgePermissionService {
         return hasPermission(knowledgeBaseId, userId, isAdmin, 4);
     }
 
+    public boolean canView(Long knowledgeBaseId, Long userId, Long organizationId, boolean isAdmin) {
+        if (isAdmin || hasPermission(knowledgeBaseId, userId, false, 4)) return true;
+        KnowledgeBase base = requireActiveKnowledgeBase(knowledgeBaseId);
+        if (base.getVisibility() != null && base.getVisibility() == 3) return true;
+        return base.getVisibility() != null && base.getVisibility() == 2
+                && organizationId != null && organizationId.equals(base.getOrganizationId());
+    }
+
+    public void requireViewAccess(Long knowledgeBaseId, Long userId, Long organizationId, boolean isAdmin) {
+        if (!canView(knowledgeBaseId, userId, organizationId, isAdmin)) {
+            throw new AccessDeniedException("You cannot view this knowledge base");
+        }
+    }
+
     /**
      * Finds an active (non-deleted) member record.
      */

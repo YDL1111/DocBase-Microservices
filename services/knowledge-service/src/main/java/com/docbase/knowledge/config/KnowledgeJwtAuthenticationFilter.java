@@ -57,6 +57,7 @@ public class KnowledgeJwtAuthenticationFilter {
                     }
 
                     String username = claims.get("username", String.class);
+                    Long organizationId = claimLong(claims, "organization_id");
                     boolean admin = false;
 
                     @SuppressWarnings("unchecked")
@@ -68,7 +69,8 @@ public class KnowledgeJwtAuthenticationFilter {
                             ? permissions.stream().map(SimpleGrantedAuthority::new).collect(java.util.stream.Collectors.toList())
                             : List.of();
 
-                    KnowledgeUserPrincipal principal = new KnowledgeUserPrincipal(userId, username, admin, authorities);
+                    KnowledgeUserPrincipal principal = new KnowledgeUserPrincipal(
+                            userId, username, organizationId, admin, authorities);
                     UsernamePasswordAuthenticationToken auth =
                             new UsernamePasswordAuthenticationToken(principal, null, authorities);
                     auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
@@ -96,5 +98,13 @@ public class KnowledgeJwtAuthenticationFilter {
             return n.longValue();
         }
         return 0L;
+    }
+
+    private Long claimLong(Claims claims, String name) {
+        Object value = claims.get(name);
+        if (value instanceof Number number) return number.longValue();
+        if (value == null) return null;
+        try { return Long.parseLong(value.toString()); }
+        catch (NumberFormatException ignored) { return null; }
     }
 }

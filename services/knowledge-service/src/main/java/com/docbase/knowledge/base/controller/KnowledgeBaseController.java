@@ -28,7 +28,8 @@ public class KnowledgeBaseController {
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "20") long size,
             @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
-        return ApiResponse.success(knowledgeBaseService.listForUser(current, size, principal.userId(), principal.admin()));
+        return ApiResponse.success(knowledgeBaseService.listForUser(
+                current, size, principal.userId(), principal.organizationId(), principal.admin()));
     }
 
     @GetMapping("/{id}")
@@ -36,7 +37,8 @@ public class KnowledgeBaseController {
     public ApiResponse<KnowledgeBase> get(
             @PathVariable Long id,
             @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
-        return ApiResponse.success(knowledgeBaseService.getById(id, principal.userId(), principal.admin()));
+        return ApiResponse.success(knowledgeBaseService.getById(
+                id, principal.userId(), principal.organizationId(), principal.admin()));
     }
 
     @PostMapping
@@ -48,7 +50,8 @@ public class KnowledgeBaseController {
         base.setName(request.name());
         base.setDescription(request.description());
         base.setVisibility(request.visibility());
-        return ApiResponse.success(knowledgeBaseService.create(base, principal.userId()));
+        return ApiResponse.success(knowledgeBaseService.create(
+                base, principal.userId(), principal.organizationId()));
     }
 
     @PutMapping("/{id}")

@@ -62,32 +62,49 @@ public class KnowledgeDocumentService {
      * Lists documents in a knowledge base with pagination.
      */
     public Page<KnowledgeDocument> listByBaseId(Long knowledgeBaseId, long current, long size, Long userId, boolean isAdmin) {
-        permissionService.requireMembership(knowledgeBaseId, userId, isAdmin);
+        return listByBaseId(knowledgeBaseId, current, size, userId, null, isAdmin);
+    }
+
+    public Page<KnowledgeDocument> listByBaseId(Long knowledgeBaseId, long current, long size,
+                                                Long userId, Long organizationId, boolean isAdmin) {
+        permissionService.requireViewAccess(knowledgeBaseId, userId, organizationId, isAdmin);
 
         Page<KnowledgeDocument> page = new Page<>(current, size);
-        return documentMapper.selectPage(page,
-                new QueryWrapper<KnowledgeDocument>()
-                        .eq("knowledge_base_id", knowledgeBaseId)
-                        .eq("deleted", 0)
-                        .orderByDesc("created_at")
-        );
+        QueryWrapper<KnowledgeDocument> wrapper = new QueryWrapper<KnowledgeDocument>()
+                .eq("knowledge_base_id", knowledgeBaseId).eq("deleted", 0);
+        if (!isAdmin && !permissionService.hasPermission(knowledgeBaseId, userId, false, 3)) {
+            applyVisibilityFilter(wrapper, userId, organizationId);
+        }
+        return documentMapper.selectPage(page, wrapper.orderByDesc("created_at"));
     }
 
     /**
      * Gets a document by ID. Requires membership in the knowledge base.
      */
     public KnowledgeDocument getById(Long documentId, Long userId, boolean isAdmin) {
+        return getById(documentId, userId, null, isAdmin);
+    }
+
+    public KnowledgeDocument getById(Long documentId, Long userId, Long organizationId, boolean isAdmin) {
         KnowledgeDocument doc = documentMapper.selectById(documentId);
         if (doc == null || doc.getDeleted() == 1) {
             throw new BusinessException("DOCUMENT_NOT_FOUND", "Document not found");
         }
-        permissionService.requireMembership(doc.getKnowledgeBaseId(), userId, isAdmin);
+        permissionService.requireViewAccess(doc.getKnowledgeBaseId(), userId, organizationId, isAdmin);
+        if (!isAdmin && !permissionService.hasPermission(doc.getKnowledgeBaseId(), userId, false, 3)
+                && !isDocumentVisible(doc, userId, organizationId)) {
+            throw new BusinessException("DOCUMENT_NOT_FOUND", "Document not found");
+        }
         return doc;
     }
 
     /** Returns an authorized stream without exposing MinIO coordinates to the browser. */
     public DocumentContent openContent(Long documentId, Long userId, boolean isAdmin) {
-        KnowledgeDocument document = getById(documentId, userId, isAdmin);
+        return openContent(documentId, userId, null, isAdmin);
+    }
+
+    public DocumentContent openContent(Long documentId, Long userId, Long organizationId, boolean isAdmin) {
+        KnowledgeDocument document = getById(documentId, userId, organizationId, isAdmin);
         if (document.getObjectKey() == null || document.getObjectKey().isBlank()) {
             throw new BusinessException("DOCUMENT_CONTENT_NOT_FOUND", "Document content is unavailable");
         }
@@ -132,6 +149,12 @@ public class KnowledgeDocumentService {
 
     private Long registerDocumentInternal(Long knowledgeBaseId, KnowledgeDocument document, Long uploadRequestId,
                                           String leaseToken, Long userId, int initialStatus) {
+
+        if (Integer.valueOf(KnowledgeDocumentConstants.VISIBILITY_DEPT).equals(document.getVisibility())
+                && document.getOrganizationId() == null) {
+            throw new BusinessException("ORGANIZATION_REQUIRED",
+                    "department visibility requires an organization");
+        }
 
         document.setId(null);
         document.setKnowledgeBaseId(knowledgeBaseId);
@@ -363,6 +386,11 @@ public class KnowledgeDocumentService {
      * @return ordered list of visible document IDs (possibly empty, never null)
      */
     public List<Long> findVisibleDocumentIds(Long knowledgeBaseId, Long userId, boolean isAdmin) {
+        return findVisibleDocumentIds(knowledgeBaseId, userId, null, isAdmin);
+    }
+
+    public List<Long> findVisibleDocumentIds(Long knowledgeBaseId, Long userId,
+                                             Long organizationId, boolean isAdmin) {
         // Verify the knowledge base exists and is enabled. Admins cannot bypass existence.
         KnowledgeBase base = permissionService.requireActiveKnowledgeBase(knowledgeBaseId);
         if (base.getStatus() == null || base.getStatus() != 1) {
@@ -372,7 +400,7 @@ public class KnowledgeDocumentService {
         // Regular users must be members of the knowledge base (any role).
         // Admins bypass the membership check but not the existence/enabled checks above.
         if (!isAdmin) {
-            permissionService.requireMembership(knowledgeBaseId, userId, false);
+            permissionService.requireViewAccess(knowledgeBaseId, userId, organizationId, false);
         }
 
         QueryWrapper<KnowledgeDocument> wrapper = new QueryWrapper<>();
@@ -387,18 +415,7 @@ public class KnowledgeDocumentService {
             //   - PUBLIC documents are visible to all members
             //   - PRIVATE documents require an explicit user ACL grant
             //   - DEPT documents are fail-closed (no reliable dept identity in JWT)
-            wrapper.and(w -> w
-                    .eq("created_by", userId)
-                    .or().eq("visibility", KnowledgeDocumentConstants.VISIBILITY_PUBLIC)
-                    .or().apply("visibility = {0} AND EXISTS ("
-                                    + "SELECT 1 FROM knowledge_document_acl acl "
-                                    + "WHERE acl.document_id = knowledge_document.id "
-                                    + "AND acl.subject_type = {1} "
-                                    + "AND acl.subject_id = {2} "
-                                    + "AND acl.deleted = {3})",
-                            KnowledgeDocumentConstants.VISIBILITY_PRIVATE,
-                            KnowledgeDocumentConstants.ACL_SUBJECT_TYPE_USER,
-                            userId, 0));
+            applyVisibilityFilter(wrapper, userId, organizationId);
         }
 
         // Cap at limit + 1 so we can detect truncation without a separate count query.
@@ -416,6 +433,43 @@ public class KnowledgeDocumentService {
         }
 
         return rows.stream().map(KnowledgeDocument::getId).toList();
+    }
+
+    private void applyVisibilityFilter(QueryWrapper<KnowledgeDocument> wrapper,
+                                       Long userId, Long organizationId) {
+        wrapper.and(w -> {
+            w.eq("created_by", userId)
+                    .or().eq("visibility", KnowledgeDocumentConstants.VISIBILITY_PUBLIC);
+            if (organizationId != null) {
+                w.or().and(dept -> dept.eq("visibility", KnowledgeDocumentConstants.VISIBILITY_DEPT)
+                        .eq("organization_id", organizationId));
+            }
+            w.or().apply("visibility = {0} AND EXISTS ("
+                            + "SELECT 1 FROM knowledge_document_acl acl "
+                            + "WHERE acl.document_id = knowledge_document.id "
+                            + "AND acl.subject_type = {1} "
+                            + "AND acl.subject_id = {2} "
+                            + "AND acl.deleted = {3})",
+                    KnowledgeDocumentConstants.VISIBILITY_PRIVATE,
+                    KnowledgeDocumentConstants.ACL_SUBJECT_TYPE_USER,
+                    userId, 0);
+        });
+    }
+
+    private boolean isDocumentVisible(KnowledgeDocument document, Long userId, Long organizationId) {
+        if (userId.equals(document.getCreatedBy())
+                || Integer.valueOf(KnowledgeDocumentConstants.VISIBILITY_PUBLIC).equals(document.getVisibility())) {
+            return true;
+        }
+        if (Integer.valueOf(KnowledgeDocumentConstants.VISIBILITY_DEPT).equals(document.getVisibility())
+                && organizationId != null && organizationId.equals(document.getOrganizationId())) {
+            return true;
+        }
+        return documentAclMapper.selectCount(
+                new QueryWrapper<com.docbase.knowledge.document.domain.KnowledgeDocumentAcl>()
+                        .eq("document_id", document.getId())
+                        .eq("subject_type", KnowledgeDocumentConstants.ACL_SUBJECT_TYPE_USER)
+                        .eq("subject_id", userId).eq("deleted", 0)) > 0;
     }
 
     /**

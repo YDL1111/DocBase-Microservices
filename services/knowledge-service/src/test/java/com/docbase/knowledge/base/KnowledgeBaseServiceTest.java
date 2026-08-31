@@ -77,13 +77,14 @@ class KnowledgeBaseServiceTest {
         base.setDescription("Testing field persistence");
         base.setVisibility(2);
 
-        Long id = knowledgeBaseService.create(base, 2L);
-        KnowledgeBase saved = knowledgeBaseService.getById(id, 2L, false);
+        Long id = knowledgeBaseService.create(base, 2L, 100L);
+        KnowledgeBase saved = knowledgeBaseService.getById(id, 2L, 100L, false);
 
         assertThat(saved.getName()).isEqualTo("Field Test Base");
         assertThat(saved.getDescription()).isEqualTo("Testing field persistence");
         assertThat(saved.getOwnerId()).isEqualTo(2L);
         assertThat(saved.getVisibility()).isEqualTo(2);
+        assertThat(saved.getOrganizationId()).isEqualTo(100L);
         assertThat(saved.getStatus()).isEqualTo(1);
     }
 

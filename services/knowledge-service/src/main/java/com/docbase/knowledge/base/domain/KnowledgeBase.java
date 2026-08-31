@@ -19,6 +19,8 @@ public class KnowledgeBase {
 
     private Long ownerId;
 
+    private Long organizationId;
+
     private Integer visibility;
 
     private Integer status;
@@ -44,6 +46,8 @@ public class KnowledgeBase {
     public void setDescription(String description) { this.description = description; }
     public Long getOwnerId() { return ownerId; }
     public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
+    public Long getOrganizationId() { return organizationId; }
+    public void setOrganizationId(Long organizationId) { this.organizationId = organizationId; }
     public Integer getVisibility() { return visibility; }
     public void setVisibility(Integer visibility) { this.visibility = visibility; }
     public Integer getStatus() { return status; }

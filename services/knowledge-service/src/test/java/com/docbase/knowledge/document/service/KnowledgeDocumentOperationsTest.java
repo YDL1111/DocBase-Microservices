@@ -59,6 +59,7 @@ class KnowledgeDocumentOperationsTest {
     @Test
     void openContent_returnsAuthorizedObjectStream() {
         when(documentMapper.selectById(8L)).thenReturn(document);
+        when(permissionService.hasPermission(3L, 7L, false, 3)).thenReturn(true);
         ByteArrayInputStream stream = new ByteArrayInputStream(new byte[] {1, 2});
         when(objectStorageService.openObject(document.getObjectKey())).thenReturn(stream);
 
@@ -66,7 +67,7 @@ class KnowledgeDocumentOperationsTest {
 
         assertThat(content.document()).isSameAs(document);
         assertThat(content.inputStream()).isSameAs(stream);
-        verify(permissionService).requireMembership(3L, 7L, false);
+        verify(permissionService).requireViewAccess(3L, 7L, null, false);
     }
 
     @Test

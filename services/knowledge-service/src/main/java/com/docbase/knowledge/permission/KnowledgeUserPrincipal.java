@@ -15,9 +15,15 @@ import java.util.stream.Collectors;
 public record KnowledgeUserPrincipal(
         Long userId,
         String username,
+        Long organizationId,
         boolean admin,
         Collection<? extends GrantedAuthority> authorities
 ) implements UserDetails {
+
+    public KnowledgeUserPrincipal(Long userId, String username, boolean admin,
+                                  Collection<? extends GrantedAuthority> authorities) {
+        this(userId, username, null, admin, authorities);
+    }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() { return authorities; }

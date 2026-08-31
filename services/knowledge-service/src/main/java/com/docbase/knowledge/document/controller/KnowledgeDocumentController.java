@@ -49,7 +49,8 @@ public class KnowledgeDocumentController {
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "20") long size,
             @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
-        return ApiResponse.success(documentService.listByBaseId(knowledgeBaseId, current, size, principal.userId(), principal.admin()));
+        return ApiResponse.success(documentService.listByBaseId(
+                knowledgeBaseId, current, size, principal.userId(), principal.organizationId(), principal.admin()));
     }
 
     @GetMapping("/documents/{documentId}")
@@ -57,7 +58,8 @@ public class KnowledgeDocumentController {
     public ApiResponse<KnowledgeDocument> get(
             @PathVariable Long documentId,
             @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
-        return ApiResponse.success(documentService.getById(documentId, principal.userId(), principal.admin()));
+        return ApiResponse.success(documentService.getById(
+                documentId, principal.userId(), principal.organizationId(), principal.admin()));
     }
 
     @GetMapping("/documents/{documentId}/content")
@@ -66,7 +68,7 @@ public class KnowledgeDocumentController {
             @PathVariable Long documentId,
             @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
         KnowledgeDocumentService.DocumentContent content = documentService.openContent(
-                documentId, principal.userId(), principal.admin());
+                documentId, principal.userId(), principal.organizationId(), principal.admin());
         KnowledgeDocument document = content.document();
         MediaType mediaType;
         try {
@@ -100,7 +102,7 @@ public class KnowledgeDocumentController {
             @PathVariable Long knowledgeBaseId,
             @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
         return ApiResponse.success(documentService.findVisibleDocumentIds(
-                knowledgeBaseId, principal.userId(), principal.admin()));
+                knowledgeBaseId, principal.userId(), principal.organizationId(), principal.admin()));
     }
 
     @PostMapping("/bases/{knowledgeBaseId}/documents")
@@ -112,6 +114,7 @@ public class KnowledgeDocumentController {
             @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
         requireInternalRegistrationKey(internalKey);
         KnowledgeDocument doc = new KnowledgeDocument();
+        doc.setOrganizationId(principal.organizationId());
         doc.setFolderId(request.folderId() != null ? request.folderId() : 0L);
         doc.setTitle(request.title());
         doc.setOriginalFilename(request.originalFilename());
@@ -135,7 +138,7 @@ public class KnowledgeDocumentController {
             @RequestParam String clientRequestId,
             @AuthenticationPrincipal KnowledgeUserPrincipal principal) {
         return ApiResponse.success(uploadService.upload(knowledgeBaseId, file, title, folderId, visibility,
-                publishForChat, clientRequestId, principal.userId(), principal.admin()));
+                publishForChat, clientRequestId, principal.userId(), principal.organizationId(), principal.admin()));
     }
 
     @PutMapping("/documents/{documentId}")

@@ -33,6 +33,17 @@ public class KnowledgeDocumentUploadService {
 
     public Long upload(Long knowledgeBaseId, MultipartFile file, String title, Long folderId, Integer visibility,
                        boolean publishForChat, String clientRequestId, Long userId, boolean isAdmin) {
+        return upload(knowledgeBaseId, file, title, folderId, visibility, publishForChat,
+                clientRequestId, userId, null, isAdmin);
+    }
+
+    public Long upload(Long knowledgeBaseId, MultipartFile file, String title, Long folderId, Integer visibility,
+                       boolean publishForChat, String clientRequestId, Long userId,
+                       Long organizationId, boolean isAdmin) {
+        if (visibility != null && visibility == 2 && organizationId == null) {
+            throw new com.docbase.common.core.BusinessException(
+                    "ORGANIZATION_REQUIRED", "department visibility requires an organization");
+        }
         DocumentUploadValidator.UploadMetadata metadata = validator.validateMetadata(
                 file, title, folderId, visibility, clientRequestId, knowledgeBaseId);
         documentService.validateUploadContext(knowledgeBaseId, metadata.folderId(), userId, isAdmin);
@@ -60,6 +71,7 @@ public class KnowledgeDocumentUploadService {
         }
 
         KnowledgeDocument document = new KnowledgeDocument();
+        document.setOrganizationId(organizationId);
         document.setFolderId(validated.folderId());
         document.setTitle(validated.title());
         document.setOriginalFilename(validated.originalFilename());

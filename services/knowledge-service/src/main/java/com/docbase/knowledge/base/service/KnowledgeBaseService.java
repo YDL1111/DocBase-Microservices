@@ -60,6 +60,11 @@ public class KnowledgeBaseService {
      * Super-admins see all knowledge bases.
      */
     public Page<KnowledgeBase> listForUser(long current, long size, Long userId, boolean isAdmin) {
+        return listForUser(current, size, userId, null, isAdmin);
+    }
+
+    public Page<KnowledgeBase> listForUser(long current, long size, Long userId,
+                                           Long organizationId, boolean isAdmin) {
         Page<KnowledgeBase> page = new Page<>(current, size);
 
         if (isAdmin) {
@@ -76,24 +81,32 @@ public class KnowledgeBaseService {
                         .eq("deleted", 0)
         ).stream().map(KnowledgeMember::getKnowledgeBaseId).toList();
 
-        if (baseIds.isEmpty()) {
-            return page.setRecords(List.of());
-        }
-
-        return knowledgeBaseMapper.selectPage(page,
-                new QueryWrapper<KnowledgeBase>()
-                        .in("id", baseIds)
-                        .eq("deleted", 0)
-                        .orderByDesc("created_at")
-        );
+        QueryWrapper<KnowledgeBase> wrapper = new QueryWrapper<KnowledgeBase>().eq("deleted", 0);
+        wrapper.and(scope -> {
+            boolean hasPrior = false;
+            if (!baseIds.isEmpty()) {
+                scope.in("id", baseIds);
+                hasPrior = true;
+            }
+            if (hasPrior) scope.or();
+            scope.eq("visibility", 3);
+            if (organizationId != null) {
+                scope.or().and(dept -> dept.eq("visibility", 2).eq("organization_id", organizationId));
+            }
+        }).orderByDesc("created_at");
+        return knowledgeBaseMapper.selectPage(page, wrapper);
     }
 
     /**
      * Gets a knowledge base by ID, verifying the user is a member (or is admin).
      */
     public KnowledgeBase getById(Long id, Long userId, boolean isAdmin) {
+        return getById(id, userId, null, isAdmin);
+    }
+
+    public KnowledgeBase getById(Long id, Long userId, Long organizationId, boolean isAdmin) {
         permissionService.requireActiveKnowledgeBase(id);
-        permissionService.requireMembership(id, userId, isAdmin);
+        permissionService.requireViewAccess(id, userId, organizationId, isAdmin);
         return knowledgeBaseMapper.selectById(id);
     }
 
@@ -102,8 +115,18 @@ public class KnowledgeBaseService {
      */
     @Transactional
     public Long create(KnowledgeBase base, Long userId) {
+        return create(base, userId, null);
+    }
+
+    @Transactional
+    public Long create(KnowledgeBase base, Long userId, Long organizationId) {
+        if (base.getVisibility() != null && base.getVisibility() == 2 && organizationId == null) {
+            throw new com.docbase.common.core.BusinessException(
+                    "ORGANIZATION_REQUIRED", "department visibility requires an organization");
+        }
         base.setId(null);
         base.setOwnerId(userId);
+        base.setOrganizationId(organizationId);
         base.setCreatedBy(userId);
         base.setUpdatedBy(userId);
         base.setStatus(1);
@@ -151,6 +174,10 @@ public class KnowledgeBaseService {
             existing.setDescription(updates.getDescription());
         }
         if (updates.getVisibility() != null) {
+            if (updates.getVisibility() == 2 && existing.getOrganizationId() == null) {
+                throw new com.docbase.common.core.BusinessException(
+                        "ORGANIZATION_REQUIRED", "department visibility requires an organization");
+            }
             existing.setVisibility(updates.getVisibility());
         }
         if (updates.getStatus() != null) {

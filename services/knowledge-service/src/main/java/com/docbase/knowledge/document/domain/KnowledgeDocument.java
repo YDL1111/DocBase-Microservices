@@ -15,6 +15,8 @@ public class KnowledgeDocument {
 
     private Long knowledgeBaseId;
 
+    private Long organizationId;
+
     private Long folderId;
 
     private String title;
@@ -52,6 +54,8 @@ public class KnowledgeDocument {
     public void setId(Long id) { this.id = id; }
     public Long getKnowledgeBaseId() { return knowledgeBaseId; }
     public void setKnowledgeBaseId(Long knowledgeBaseId) { this.knowledgeBaseId = knowledgeBaseId; }
+    public Long getOrganizationId() { return organizationId; }
+    public void setOrganizationId(Long organizationId) { this.organizationId = organizationId; }
     public Long getFolderId() { return folderId; }
     public void setFolderId(Long folderId) { this.folderId = folderId; }
     public String getTitle() { return title; }

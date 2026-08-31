@@ -133,4 +133,35 @@ class KnowledgePermissionServiceTest {
         assertThatThrownBy(() -> permissionService.requireMembership(baseId, 2L, false))
                 .isInstanceOf(AccessDeniedException.class);
     }
+
+    @Test
+    void departmentVisibility_AllowsSameOrganizationAndRejectsDifferentOrganization() {
+        KnowledgeBase base = new KnowledgeBase();
+        base.setName("Department Base " + System.nanoTime());
+        base.setVisibility(2);
+        Long baseId = knowledgeBaseService.create(base, 1L, 100L);
+
+        assertThat(permissionService.canView(baseId, 20L, 100L, false)).isTrue();
+        assertThat(permissionService.canView(baseId, 21L, 200L, false)).isFalse();
+    }
+
+    @Test
+    void departmentVisibility_RemainsFailClosedWithoutOrganizationClaim() {
+        KnowledgeBase base = new KnowledgeBase();
+        base.setName("No Claim Department Base " + System.nanoTime());
+        base.setVisibility(2);
+        Long baseId = knowledgeBaseService.create(base, 1L, 100L);
+
+        assertThat(permissionService.canView(baseId, 20L, null, false)).isFalse();
+    }
+
+    @Test
+    void publicVisibility_AllowsNonMemberWithoutOrganization() {
+        KnowledgeBase base = new KnowledgeBase();
+        base.setName("Public Base " + System.nanoTime());
+        base.setVisibility(3);
+        Long baseId = knowledgeBaseService.create(base, 1L, null);
+
+        assertThat(permissionService.canView(baseId, 20L, null, false)).isTrue();
+    }
 }
