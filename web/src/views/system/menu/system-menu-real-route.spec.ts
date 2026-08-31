@@ -9,7 +9,7 @@ import ElementPlus from "element-plus";
  * 动态菜单真实注册并渲染验证（P0）。
  *
  * 菜单树结构与后端 V12__system_menu_seed.sql 一致：
- *   系统管理（目录 routerName=SystemManage → RouterViewWrapper，is_system=1）
+ *   系统管理（仅用于侧边栏下拉分组，is_system=1）
  *     ├── 用户管理（SystemUser）
  *     ├── 角色管理（SystemRole）
  *     └── 菜单管理（SystemMenu → 真实页面组件，is_system=1）
@@ -176,24 +176,20 @@ describe("SystemMenu 动态路由真实渲染", () => {
     const store = usePermissionStore();
     const routes = store.buildRoutes(systemMenuTree());
 
-    expect(routes).toHaveLength(1);
-    const dir = routes[0];
-    expect(dir.name).toBe("SystemManage");
-
-    // children 中 SystemUser/SystemRole/SystemMenu 均生成真实组件路由
-    const childNames = dir.children!.map(c => c.name);
-    expect(childNames).toEqual(["SystemUser", "SystemRole", "SystemMenu"]);
+    expect(routes).toHaveLength(3);
+    const routeNames = routes.map(route => route.name);
+    expect(routeNames).toEqual(["SystemUser", "SystemRole", "SystemMenu"]);
     // 按钮节点（menuType=3）不生成路由
-    expect(childNames).not.toContain("新建菜单");
-    expect(childNames).not.toContain("编辑菜单");
-    expect(childNames).not.toContain("删除菜单");
+    expect(routeNames).not.toContain("新建菜单");
+    expect(routeNames).not.toContain("编辑菜单");
+    expect(routeNames).not.toContain("删除菜单");
 
-    const child = dir.children!.find(c => c.name === "SystemMenu")!;
-    expect(typeof child.component).toBe("function");
+    const menuRoute = routes.find(route => route.name === "SystemMenu")!;
+    expect(typeof menuRoute.component).toBe("function");
 
     // 动态加载的组件模块必须是真实页面（views/system/menu/index.vue），
     // 而非 placeholder。加载后模块 default 的 name 应为 SystemMenu。
-    const mod = await (child.component as () => Promise<any>)();
+    const mod = await (menuRoute.component as () => Promise<any>)();
     expect(mod.default.name).toBe("SystemMenu");
   });
 
@@ -230,10 +226,10 @@ describe("SystemMenu 动态路由真实渲染", () => {
     expect(wrapper.text()).not.toContain("功能建设中");
   });
 
-  it("SystemManage 目录仍使用 RouterViewWrapper 渲染子路由", async () => {
+  it("SystemManage 仅作为导航目录，页面路由直接挂载 RootLayout", async () => {
     const store = usePermissionStore();
     const routes = store.buildRoutes(systemMenuTree());
-    const dir = routes[0];
+    expect(routes.some(route => route.name === "SystemManage")).toBe(false);
 
     const router = createRouter({
       history: createWebHashHistory(),
@@ -255,8 +251,11 @@ describe("SystemMenu 动态路由真实渲染", () => {
 
     await router.push("/system/menu");
     await flushPromises();
-    // 子路由通过目录的 RouterViewWrapper 正常渲染
+    expect(router.currentRoute.value.name).toBe("SystemMenu");
+    expect(router.currentRoute.value.matched.map(record => record.name)).toEqual([
+      "RootLayout",
+      "SystemMenu"
+    ]);
     expect(wrapper.text()).toContain("菜单管理");
-    expect(dir.component).not.toBe(routes[0].children![0].component);
   });
 });

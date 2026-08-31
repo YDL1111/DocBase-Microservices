@@ -245,7 +245,7 @@ describe("P0-1: 与 SQL 一致的动态路由注册并渲染 list.vue", () => {
     expect(wrapper.find(".ingest-list").exists()).toBe(true);
   });
 
-  it("buildRoutes 应生成目录用 Wrapper、列表用真实组件", async () => {
+  it("buildRoutes 应跳过导航目录并生成真实列表页面路由", async () => {
     const { usePermissionStore } = await import("@/store/modules/permission");
     const store = usePermissionStore();
     const menuTree = [
@@ -279,10 +279,11 @@ describe("P0-1: 与 SQL 一致的动态路由注册并渲染 list.vue", () => {
     ];
     const routes = store.buildRoutes(menuTree);
     expect(routes).toHaveLength(1);
-    const dir = routes[0];
-    expect(dir.name).toBe("IngestTaskDir");
-    expect(dir.children![0].name).toBe("IngestTask");
-    expect(dir.component).not.toBe(dir.children![0].component);
+    const list = routes[0];
+    expect(list.name).toBe("IngestTask");
+    expect(list.path).toBe("/ingest/tasks");
+    expect(list.children).toBeUndefined();
+    expect(typeof list.component).toBe("function");
   });
 });
 

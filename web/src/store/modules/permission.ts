@@ -71,16 +71,25 @@ export const usePermissionStore = defineStore({
     menus: (state): MenuNode[] => state.menuTree
   },
   actions: {
-    /** 把 MenuNode 树转换为路由配置 */
+    /**
+     * 把菜单树转换为扁平页面路由。
+     *
+     * 菜单父子关系只负责侧边栏分组。将带绝对 path 的页面继续嵌套进
+     * Vue Router 会让目录 matcher、同路径首页和兜底 404 互相影响；
+     * 因此有可见子菜单的目录不注册页面，只递归注册真正可点击的节点。
+     */
     buildRoutes(nodes: MenuNode[]): RouteRecordRaw[] {
       const routes: RouteRecordRaw[] = [];
       for (const node of nodes) {
         if (node.isButton === 1) continue; // 按钮级权限不进路由
-        const route = this.nodeToRoute(node);
-        if (node.children && node.children.length > 0) {
-          route.children = this.buildRoutes(node.children);
+        const visibleChildren = (node.children ?? []).filter(
+          child => child.isButton !== 1
+        );
+        if (visibleChildren.length === 0) {
+          routes.push(this.nodeToRoute(node));
+        } else {
+          routes.push(...this.buildRoutes(visibleChildren));
         }
-        routes.push(route);
       }
       return routes;
     },

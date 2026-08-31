@@ -41,6 +41,38 @@ describe("router integration", () => {
     expect(resolved.matched[0].name).toBe("RootLayout");
   });
 
+  it("真实菜单页面扁平注册后均不得命中 NotFound", () => {
+    const router = createRouter({
+      history: createWebHashHistory(),
+      routes: [ROOT_ROUTE, LOGIN_ROUTE, ...LAYOUT_ROUTES]
+    });
+    const pages = [
+      ["KnowledgeList", "/knowledge"],
+      ["IngestTask", "/ingest/tasks"],
+      ["AiChat", "/ai/chat"],
+      ["SystemUser", "/system/user"],
+      ["SystemOrganization", "/system/organizations"],
+      ["SystemRole", "/system/role"],
+      ["SystemMenu", "/system/menu"]
+    ] as const;
+
+    pages.forEach(([name, path], index) => {
+      router.addRoute("RootLayout", {
+        path,
+        name,
+        component: { template: `<div>${name}</div>` },
+        meta: { menuId: index + 1 }
+      });
+    });
+
+    pages.forEach(([name, path]) => {
+      const resolved = router.resolve(path);
+      expect(resolved.name).toBe(name);
+      expect(resolved.name).not.toBe("NotFound");
+      expect(resolved.matched[0].name).toBe("RootLayout");
+    });
+  });
+
   it("注册到不存在的父路由应抛出或失败", () => {
     const router = createRouter({
       history: createWebHashHistory(),
