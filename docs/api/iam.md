@@ -1,4 +1,4 @@
-# IAM API 文档
+# 身份认证与系统管理 API
 
 IAM 服务提供认证、用户管理、角色管理、菜单管理、组织管理和权限计算能力。所有接口通过
 Gateway 路由到 `iam-service`。
@@ -222,13 +222,14 @@ token 立即失效；用户重新登录或刷新 token 后获得新的 `organiza
 | GET | `/api/system/menus/{menuId}` | `system:menu:list` |
 | POST | `/api/system/menus` | `system:menu:create` |
 | PUT | `/api/system/menus/{menuId}` | `system:menu:update` |
+| PUT | `/api/system/menus/{menuId}/status` | `system:menu:update` |
 | DELETE | `/api/system/menus/{menuId}` | `system:menu:delete` |
 | GET | `/api/system/menus/{menuId}/owners` | `admin:all` |
 | PUT | `/api/system/menus/{menuId}/owners` | `admin:all` |
 
-### 菜单管理归属（Owner）
+### 菜单管理归属
 
-`GET /api/system/menus/{menuId}/owners` 返回当前**有效** Owner 的角色 ID 列表；已停用或已删除角色不会出现在结果中。
+`GET /api/system/menus/{menuId}/owners` 返回当前有效管理角色的 ID 列表；已停用或已删除角色不会出现在结果中。
 
 `PUT /api/system/menus/{menuId}/owners` 按全量替换语义提交：
 
@@ -240,9 +241,7 @@ token 立即失效；用户重新登录或刷新 token 后获得新的 `organiza
 
 `roleIds` 必须是最多 100 个正整数，服务端会去重并要求候选角色存在、启用且未删除。空数组 `[]` 合法，表示该菜单由系统托管：不归属任何普通角色，仅超级管理员可管理。
 
-Owner 只写入 `sys_menu_owner_role`，用于界定菜单管理权；角色菜单 permission 授权只写入 `sys_role_menu`。两者严格分离：设置 Owner 不会授予该菜单 permission，也绝不能通过角色菜单授权接口实现 Owner 管理。
-
-> 非阻断技术债：系统预置菜单未来应使用稳定业务标识或唯一约束。当前 Flyway V12 为兼容升级，仍通过 `routerName`/`permission` 识别历史系统节点；本阶段未引入 `seed_key` 或进行数据库重构。
+菜单管理归属只写入 `sys_menu_owner_role`，用于界定菜单管理权；角色菜单权限授权只写入 `sys_role_menu`。两者严格分离：设置管理归属不会授予该菜单权限，也不能通过角色菜单授权接口实现归属管理。
 
 ---
 
@@ -286,28 +285,3 @@ Owner 只写入 `sys_menu_owner_role`，用于界定菜单管理权；角色菜�
 | 400 | `MENU_HAS_CHILDREN` | 菜单存在子节点，无法删除 |
 | 400 | `VALIDATION_ERROR` | 请求参数校验失败 |
 | 500 | `INTERNAL_ERROR` | 服务器内部错误 |
-
----
-
-## 旧接口到新接口映射
-
-| 旧项目路径 | 新路径 | 说明 |
-| --- | --- | --- |
-| `POST /login` | `POST /api/auth/login` | 登录 |
-| `GET /getLoginUserInfo` | `GET /api/auth/me` | 当前用户 |
-| `GET /getRouters` | `GET /api/auth/menus` | 菜单树 |
-| `POST /logout` | `POST /api/auth/logout` | 注销 |
-| `GET /system/users` | `GET /api/system/users` | 用户列表 |
-| `POST /system/users` | `POST /api/system/users` | 创建用户 |
-| `PUT /system/users/{id}` | `PUT /api/system/users/{id}` | 修改用户 |
-| `DELETE /system/users/{id}` | `DELETE /api/system/users/{id}` | 删除用户 |
-| `PUT /system/users/{id}/password` | `PUT /api/system/users/{id}/password` | 重置密码 |
-| `PUT /system/users/{id}/status` | `PUT /api/system/users/{id}/status` | 状态修改 |
-| `GET /system/role/list` | `GET /api/system/roles` | 角色列表 |
-| `POST /system/role` | `POST /api/system/roles` | 创建角色 |
-| `PUT /system/role` | `PUT /api/system/roles/{id}` | 修改角色 |
-| `DELETE /system/role/{id}` | `DELETE /api/system/roles/{id}` | 删除角色 |
-| `GET /system/menus` | `GET /api/system/menus` | 菜单列表 |
-| `POST /system/menus` | `POST /api/system/menus` | 创建菜单 |
-| `PUT /system/menus/{id}` | `PUT /api/system/menus/{id}` | 修改菜单 |
-| `DELETE /system/menus/{id}` | `DELETE /api/system/menus/{id}` | 删除菜单 |

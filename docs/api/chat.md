@@ -1,100 +1,102 @@
-# Chat Service API
+# AI 会话 API
 
-AI 会话管理 + RAG 流式问答。所有路由经 Gateway `/api/ai/**` 到达 chat-service。
+Chat 服务负责会话、消息持久化、知识库绑定、权限范围查询和 RAG 流式转发。所有接口通过 Gateway 的 `/api/ai/chat/**` 路径访问。
 
-## 权限
+超级管理员可以通过功能权限，但不能读取或删除其他用户的私人会话。所有会话和消息操作都使用当前 JWT 用户与资源所有者联合校验。
 
-| 端点 | 权限 |
-|------|------|
-| GET /api/ai/chat/sessions | `ai:chat:list` 或 `admin:all` |
-| POST /api/ai/chat/sessions | `ai:chat:list` 或 `admin:all` |
-| GET /api/ai/chat/sessions/{sessionId}/messages | `ai:chat:list` 或 `admin:all` |
-| DELETE /api/ai/chat/sessions/{sessionId}/messages/{messageId} | `ai:chat:list` 或 `admin:all` |
-| DELETE /api/ai/chat/sessions/{sessionId} | `ai:chat:list` 或 `admin:all` |
-| POST /api/ai/chat/stream | `ai:chat:query` 或 `admin:all` |
-| POST /api/ai/chat/query | 暂不支持（返回 NOT_IMPLEMENTED） |
+## 会话与消息
 
-admin:all 满足菜单权限，但**不能**读取/删除其他用户的私人会话。
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| GET | `/api/ai/chat/sessions` | `ai:chat:list` | 分页查询自己的会话 |
+| POST | `/api/ai/chat/sessions` | `ai:chat:list` | 创建会话 |
+| PUT | `/api/ai/chat/sessions/{sessionId}/knowledge-bases` | `ai:chat:list` | 全量替换绑定知识库 |
+| GET | `/api/ai/chat/sessions/{sessionId}/messages` | `ai:chat:list` | 查询会话历史 |
+| DELETE | `/api/ai/chat/sessions/{sessionId}/messages/{messageId}` | `ai:chat:list` | 删除已结束的助手回复 |
+| DELETE | `/api/ai/chat/sessions/{sessionId}` | `ai:chat:list` | 删除自己的会话 |
 
-## 安全边界
+创建会话示例：
 
-- userId 仅来自已验证的 JWT Principal，不接受客户端传入
-- visibleDocumentIds 完全由 knowledge-service 根据 JWT 身份计算
-- 每次读写会话/消息都使用 `sessionId + currentUserId` 联合校验
-- 删除单条消息只允许删除当前用户会话内已结束的助手回复；不会连带删除用户问题，用户消息或其他会话的消息统一拒绝
-- 已有会话使用其存储的 knowledgeBaseId，不信任请求中的 KB ID
-- RAG API Key 仅通过环境变量注入，日志中不输出
-
-## SSE 事件协议
-
-每个 SSE 事件都是统一 JSON 格式：`data: {"type":"<type>","data":<payload>}`
-
+```json
+{
+  "title": "产品资料问答",
+  "knowledgeBaseIds": [1, 2]
+}
 ```
-data: {"type":"session","data":{"sessionId":1,"messageId":2}}
-data: {"type":"token","data":"你"}
-data: {"type":"token","data":"好"}
-data: {"type":"sources","data":[{"document_id":1,"file_name":"x.pdf","page":3}]}
+
+`knowledgeBaseIds` 最多 20 个。空数组表示普通对话，不使用企业知识库；会话创建后仍可通过绑定接口改为零个、一个或多个知识库。`knowledgeBaseId` 单值字段仅用于兼容旧客户端，新代码应使用数组字段。
+
+绑定接口采用全量替换语义：
+
+```json
+{
+  "knowledgeBaseIds": [2, 5]
+}
+```
+
+## 流式问答
+
+`POST /api/ai/chat/stream` 需要 `ai:chat:query` 权限，Content-Type 为 `application/json`，响应为 `text/event-stream`。
+
+```json
+{
+  "sessionId": 12,
+  "knowledgeBaseIds": [2, 5],
+  "question": "请总结产品的部署要求",
+  "clientRequestId": "15c46f38-3374-4f91-9ea8-6d8a61c957f8"
+}
+```
+
+- `question` 长度为 1～4000 字符。
+- `clientRequestId` 由浏览器生成，用于识别重试产生的重复请求。
+- 已存在会话时，以会话中持久化的知识库绑定为准，不信任请求伪造的范围。
+- 可见文档 ID 由 Knowledge 根据当前 JWT 计算，客户端不能直接提交。
+- `POST /api/ai/chat/query` 是兼容入口，当前返回 `NOT_IMPLEMENTED`；同步问答不会伪装成流式结果。
+
+## 流式事件
+
+每条事件的 `data` 都是统一 JSON：
+
+```text
+data: {"type":"session","data":{"sessionId":12,"messageId":36}}
+data: {"type":"token","data":"部署"}
+data: {"type":"sources","data":[{"document_id":8,"file_name":"部署手册.pdf","page":3}]}
 data: {"type":"done","data":null}
-data: {"type":"error","data":{"code":"RAG_UNAVAILABLE","message":"AI 服务暂时不可用"}}
 ```
 
-| type | payload 格式 | 说明 |
-|------|-------------|------|
-| session | `{"sessionId":N,"messageId":N}` | 流首条，返回会话和助手消息 ID |
-| token | 字符串 | 逐 token 输出 |
-| sources | `[{"document_id","file_name","page"}]` | 来源文档（已过滤可见范围） |
-| done | null | 流正常结束 |
-| error | `{"code","message"}` | 错误终止 |
+| 类型 | 数据 | 含义 |
+| --- | --- | --- |
+| `session` | 会话 ID、消息 ID | 流建立后的资源标识 |
+| `token` | 字符串 | 增量回答内容 |
+| `sources` | 来源数组 | 已通过可见范围过滤的引用 |
+| `done` | `null` | 正常完成 |
+| `error` | 错误码和安全提示 | 业务或传输错误 |
 
-错误码：`INVALID_INPUT`、`QUESTION_TOO_LONG`、`FORBIDDEN`、`KB_MISMATCH`、`CONCURRENT_STREAM_LIMIT`、`DUPLICATE_REQUEST`、`RAG_UNAVAILABLE`、`RAG_TIMEOUT`、`RAG_ERROR`、`RAG_INCOMPLETE`、`NOT_IMPLEMENTED`、`INTERNAL_ERROR`、`STREAM_ERROR`
+浏览器使用 `fetch` 读取 POST SSE，不使用无法携带请求体的 `EventSource`。收到 `done` 或 `error` 后继续读取到服务端关闭连接，但忽略多余事件，确保服务端可以完成消息状态持久化。
 
-## Browser stream client
+## 幂等与中断恢复
 
-The browser client uses `fetch` with `POST /api/ai/chat/stream`, JSON request data, and an `Authorization` header. It does not use `EventSource` (which cannot send this POST body) or Axios for the streaming response.
+- 一个新的用户意图生成新的 `clientRequestId`。
+- 首次 401 触发令牌刷新后，原请求只自动重试一次并复用同一个 ID。
+- 网络中断或流提前结束时，前端不直接显示成功，而是查询会话历史核对结果。
+- 如果历史已存在相同 ID 的用户消息，则使用持久化消息替换临时消息，不再次调用 RAG。
+- 结果仍不确定时保留用户输入并提供重新核对或重试；重试复用原 ID。
+- 切换会话、删除会话、停止生成或卸载页面会取消旧流，迟到回调不能写入新会话。
 
-- A `401` received before any SSE data triggers the shared token refresh coordinator, then retries the exact request once. Network failures, `5xx`, `403`, and a second `401` are not retried automatically.
-- `clientRequestId` is required by the client API. Generation and recovery policy belong to Phase 4C.
-- EOF without a `done` or `error` event is an incomplete stream. A user cancellation is propagated through `AbortSignal` to fetch.
-- After a `done` or `error` event the client keeps reading until the server closes the stream, while ignoring any later events, so the server can persist its terminal state normally.
+## 删除约束
 
-## Chat page streaming behavior (Phase 4C2A)
+单条消息删除只允许操作当前用户会话中已经结束的助手回复。用户问题、生成中的消息、其他用户会话或不匹配的 `sessionId + messageId` 会被拒绝。
 
-### Failure recovery & history reconciliation (Phase 4C2A)
+## 常见错误码
 
-- Transport-level failures whose outcome is uncertain (`NETWORK_ERROR`, `STREAM_INCOMPLETE`, premature disconnect, and transport-shape `HTTP_ERROR`) never display as success. The temporary USER/ASSISTANT messages are kept, the transport is allowed to fully settle (drain), and the UI shows a safe "result pending" state while it requests the persisted history for the active session.
-- If the history already contains a USER message with the same `clientRequestId`, the persisted record replaces the temporary one and no new RAG call is made. If the history does not contain the request yet, the temporary content is preserved and a retry entry is exposed; retrying reuses the original `clientRequestId`.
-- Reconciliation is guarded by the stream generation, the selected session id, and the mounted flag. A late reconciliation result never writes into a different session, never restores a deleted session, and never overwrites a newer stream started after it.
-
-### clientRequestId lifecycle (Phase 4C2A)
-
-- A brand-new user intent generates a fresh UUID via `crypto.randomUUID()`. The initial-401 retry inside the stream client naturally reuses the same id.
-- Editing the question and resending generates a new id.
-- Retrying an uncertain result reuses the original id; the user can never supply an id, and none is derived from timestamps or indices.
-- A `DUPLICATE_REQUEST` SSE error is treated as "the server already knows this id": the client reconciles with history instead of synthesizing a new id to bypass the idempotency guard. If the persisted record is still STREAMING, the UI shows a processing state and offers a manual recheck.
-
-### Manual refresh & recheck
-
-- The message history has an explicit refresh action. It is disabled while a stream is generating, draining, or cancelling, so a history response can never clobber a live temporary message. Concurrent refreshes coalesce into a single pending refresh, and a refresh captures the session id plus request sequence so a stale response is ignored.
-- A manual recheck re-runs reconciliation for the current attempt. Repeated clicks coalesce into the single in-flight recheck (`pendingRecheck`), and the latest user request is never silently dropped.
-
-### Recovery states
-
-- `GENERATING` (receiving tokens), `DRAINING` (terminal received, transport ending), `CANCELLING` (stop in flight), `SYNCING` (reconciling with history), `UNCERTAIN` (pending confirmation), `RETRYABLE` (confirmed absent, retry offered), plus the terminal `COMPLETED` / `FAILED` / `CANCELLED`.
-- During draining and cancelling the input keeps its content and stays editable, but the send button is disabled. Status text is generic and never exposes backend stack traces, URLs, SQL, MinIO keys, prompts, or raw error payloads.
-
-## Chat page streaming behavior (Phase 4C1)
-
-- The page sends only from a selected, valid session that has a positive `knowledgeBaseId`. The user cannot change the knowledge base from the question box; the selected session's stored binding is sent with the request.
-- Each new user intent uses one browser-generated UUID `clientRequestId`. The same value stays with the exact request if the stream client's initial-401 retry runs.
-- The USER message and one temporary ASSISTANT message are added immediately. Tokens append to that same assistant message, and `sources` attach to that same message even if they arrive before tokens.
-- Every callback is guarded by a stream generation, its `AbortController`, the selected-session snapshot, and component mounted state. Switching sessions, deleting the active session, leaving the route, unmounting, replacing a live stream, or explicit stop invalidates the previous generation before aborting it.
-- On `done`, the UI retains the temporary result while it reloads the selected session history; the persisted history becomes authoritative only if the same stream/session is still current. This history-only settling state is replaceable: a new accepted question invalidates the old refresh instead of being dropped. A failed refresh leaves the completed temporary result visible for manual refresh.
-- An SSE `error`, incomplete EOF, or client failure is never displayed as successful. An error immediately ends the visible generating state while the client drains the terminal stream in the background; it cannot subsequently be changed to cancelled. Terminal error drain and user cancellation are non-replaceable settling states: the question box keeps its text, but sending stays unavailable until the prior `consume()` Promise settles, so the server can persist the terminal state and release its concurrency lock. UI messages use safe generic text and never expose backend stack traces, URLs, SQL, MinIO keys, or prompts. Explicit user stop marks only an actively generating temporary response cancelled; background cancellation from navigation/session changes does not show a toast in the new session.
-- Sources display only validated `file_name` and optional positive `page` values. `document_id` must be a positive safe integer; no object keys, download URLs, or direct object-storage links are rendered.
-
-## 数据库
-
-- `ai_chat_session`：会话主表
-- `ai_chat_message`：消息表（client_request_id 唯一约束防重）
-
-详见 [数据库设计](../migration/chat-migration.md)。
+| 错误码 | 含义 |
+| --- | --- |
+| `INVALID_INPUT` | 请求字段无效 |
+| `QUESTION_TOO_LONG` | 问题超过长度限制 |
+| `KB_MISMATCH` | 请求知识库与会话绑定不一致 |
+| `DUPLICATE_REQUEST` | 相同幂等 ID 已存在 |
+| `CONCURRENT_STREAM_LIMIT` | 当前用户并发生成数超过限制 |
+| `RAG_UNAVAILABLE` | RAG 服务不可用 |
+| `RAG_TIMEOUT` | RAG 调用超时 |
+| `RAG_INCOMPLETE` | 流未正常结束 |
+| `STREAM_ERROR` | SSE 传输异常 |

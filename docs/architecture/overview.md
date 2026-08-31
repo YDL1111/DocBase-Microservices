@@ -1,72 +1,101 @@
-# 企业知识库微服务版架构概览
+# 系统架构
 
-## 目标与边界
+DocBase 是面向企业文档沉淀与知识问答的应用系统。Java 服务负责身份、权限、知识资产、导入任务和会话编排，Python RAG 服务负责文档解析、向量检索与大模型生成，Vue 管理端通过统一网关访问后端。
 
-本工程把旧版“Java 模块化单体 + Python RAG”演进为 6 个独立部署单元。Maven 多模块只负责
-统一构建和版本，不改变运行时边界；每个 Java 服务拥有独立启动类、配置、镜像、端口、健康
-检查和部署生命周期。
+## 总体结构
 
-```text
-Web
-  |
-Gateway (WebFlux)
-  |---- iam-service -------- docbase_iam / Redis
-  |---- knowledge-service -- docbase_knowledge / MinIO / Outbox
-  |---- ingest-service ----- docbase_ingest / RabbitMQ
-  `---- chat-service ------- docbase_chat
-                                  |
-                                  `---- rag-service -- docbase_rag / Chroma
+```mermaid
+flowchart LR
+    U[浏览器] --> W[Vue 管理端]
+    W --> G[Gateway]
+
+    G --> I[IAM 服务]
+    G --> K[Knowledge 服务]
+    G --> N[Ingest 服务]
+    G --> C[Chat 服务]
+
+    I --> MI[(IAM MySQL)]
+    I --> R[(Redis)]
+    K --> MK[(Knowledge MySQL)]
+    K --> O[(MinIO)]
+    K --> Q[(RabbitMQ)]
+    N --> MN[(Ingest MySQL)]
+    N --> Q
+    N --> P[Python RAG]
+    C --> MC[(Chat MySQL)]
+    C --> K
+    C --> P
+    P --> V[(Chroma 向量库)]
+    P --> O
+    P --> L[大模型与 Embedding 服务]
 ```
-
-所有 Java 服务注册到 Nacos `docbase-dev` Namespace、`DOCBASE_GROUP` Group。短同步调用使用
-OpenFeign，长连接 SSE 使用 WebClient。Gateway 只负责统一入口和初步认证，业务服务仍须独立
-验签和授权。
 
 ## 服务职责
 
-| 服务 | 数据所有权 | 当前阶段 |
+| 服务 | 主要职责 | 持久化数据 |
 | --- | --- | --- |
-| gateway-service | 无业务库 | 路由、CORS、Trace ID、错误响应 |
-| iam-service | `docbase_iam` | 骨架与探针；后续迁移认证及 `sys_*` |
-| knowledge-service | `docbase_knowledge` | Flyway Outbox 基线与 MinIO 配置 |
-| ingest-service | `docbase_ingest` | 导入任务、消费去重表和 RabbitMQ 配置 |
-| chat-service | `docbase_chat` | 会话表基线、Feign 与 WebClient |
-| rag-service | `docbase_rag`、Chroma | 容器健康占位，不含完整 RAG |
+| `gateway-service` | 统一入口、路由、跨域、请求头清理、限流和访问日志 | 无业务数据 |
+| `iam-service` | 登录注册、用户、角色、菜单、组织、JWT 与权限计算 | `docbase_iam`、Redis |
+| `knowledge-service` | 知识库、目录、成员、文档、版本、可见范围和 Outbox | `docbase_knowledge`、MinIO |
+| `ingest-service` | 导入任务、状态机、重试、幂等消费和 RAG 调度 | `docbase_ingest` |
+| `chat-service` | 会话、消息、知识库绑定、可见文档查询和 SSE 编排 | `docbase_chat` |
+| `rag-service` | 解析、清洗、分块、Embedding、检索排序、上下文构建和生成 | Chroma、MinIO |
+| `web` | 管理端、知识库操作、任务查看和 AI 对话 | 浏览器本地状态 |
 
-`common-*` 仅提供跨服务技术能力。禁止把业务实体、Mapper、Repository 或业务 Service 放入
-公共库；跨服务共享的数据只能通过 API DTO 或版本化事件契约表达。
+每个业务服务只访问自己拥有的数据库。跨服务信息通过 HTTP、领域事件或 JWT 声明传递，避免共享表造成隐式耦合。
 
-## 关键运行链路
+## 核心业务链路
 
-### 同步请求
+### 文档入库
 
-客户端请求经 Gateway 使用 Nacos 服务发现和 `lb://` 路由到业务服务。每个请求生成或透传
-`X-Trace-Id`，Gateway 先删除所有客户端传入的 `X-User-*` 头。IAM 迁移后，Gateway 和每个
-业务服务都用 IAM 公钥独立验证 JWT。
+```text
+浏览器上传文件
+  → Knowledge 校验文件并写入 MinIO
+  → 文档记录与 Outbox 事件在同一事务提交
+  → Ingest 幂等消费事件并创建任务
+  → Ingest 调用 RAG 解析、清洗、分块和向量化
+  → RAG 原子切换活动向量版本
+  → Ingest 发布结果事件
+  → Knowledge 更新文档入库状态
+```
 
-### 文档最终一致性
+上传接口使用 `clientRequestId` 保证重复请求不会生成多份文档。任务失败后按照状态机重试；文档更新先构建新索引再切换版本，避免查询读到半成品。
 
-Knowledge 在同一本地事务中修改文档并写 `event_outbox`。发布器将事件可靠发送到
-RabbitMQ；Ingest 通过 `processed_event(event_id)` 和业务唯一约束幂等消费，再调用 RAG。
-失败进入 30 秒、5 分钟重试队列，最终进入 DLQ。更新场景先成功构建新向量再切换活动版本，
-删除场景先从权限查询中排除，再异步清理向量。
+### AI 问答
 
-### 权限下沉 RAG
+```text
+用户发送问题
+  → Chat 校验会话所有权和知识库绑定
+  → Knowledge 计算当前用户可见文档 ID
+  → RAG 在可见范围内进行查询改写、召回、去重和排序
+  → 按完整 Chunk 构建上下文并调用大模型
+  → Chat 通过 SSE 返回 Token、引用来源和结束状态
+  → 会话历史成为最终结果依据
+```
 
-Chat 根据当前身份向 Knowledge 查询可见文档 ID，再把 `visible_doc_ids` 传给 RAG。RAG 在
-Chroma 检索阶段过滤 chunk，无权限内容不进入 Prompt。该链路不会在基础工程阶段伪实现。
+用户可以不绑定知识库，也可以绑定一个或多个知识库。绑定知识库时，可见文档集合由业务侧计算，RAG 不接受客户端自行声明的文档权限。
 
-## 配置与秘密
+## 一致性与可靠性
 
-Nacos 保存超时、功能开关、限流和 RAG 参数；数据库密码、Nacos 密码、RabbitMQ 密码、
-MinIO Secret、JWT 私钥、内部 API Key 和聊天模型 API Key 仅通过环境变量或后续 Docker
-Secrets 注入。仓库只包含 `.env.example` 占位值。
+- Knowledge 使用事务 Outbox，保证业务数据与待发布事件同时提交。
+- Ingest 使用事件 ID 和业务键做幂等处理，重复投递不会重复创建有效任务。
+- 导入任务通过有限状态机约束重试、取消、成功和失败转换。
+- 文档向量采用版本化写入与活动版本切换，更新失败不会破坏旧索引。
+- Chat 使用 `clientRequestId` 防止不确定网络结果造成重复提问。
+- SSE 中断后，前端以持久化会话历史进行核对，不把未知结果误判为成功。
 
-Java 使用 `spring.config.import` 加载 `common.yaml` 与服务级 Data ID，不使用
-`bootstrap.yml`、`shared-configs` 或 `extension-configs`。
+## 基础设施
 
-## 本地部署
+- Nacos：服务发现与集中配置。
+- MySQL：各 Java 业务服务的独立 Schema。
+- Redis：会话撤销、授权版本和网关共享限流。
+- RabbitMQ：文档事件与入库状态事件。
+- MinIO：原始文档与解析输入。
+- Chroma：文档 Chunk 与向量索引。
+- Prometheus、Grafana：指标采集与可视化配置。
 
-Compose 项目名固定为 `docbase-ms`，不设置 `container_name`。基础设施、应用、治理和观测
-分别由 profiles 控制。所有持久组件使用命名卷；停止脚本不会删除卷。MySQL 与 Redis 不映射
-宿主机端口，业务服务仅通过 Gateway 暴露。
+更多内容：
+
+- [身份认证与数据权限](security.md)
+- [RAG 文档处理与问答链路](rag.md)
+- [事件契约](../events/README.md)

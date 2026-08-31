@@ -1,7 +1,6 @@
-# Ingest Service API 文档
+# 导入任务 API
 
-Ingest 服务提供导入任务管理、状态查询和手动重试能力。所有接口通过
-Gateway 路由到 `ingest-service`。
+Ingest 服务提供导入任务查询、状态跟踪、手动重试和取消能力。所有浏览器请求通过 Gateway 的 `/api/ingest/**` 路径访问。
 
 ## 路由前缀
 

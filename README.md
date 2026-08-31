@@ -38,20 +38,20 @@ DocBase 面向企业内部知识沉淀、文档共享与智能检索场景，提
 
 ```mermaid
 flowchart LR
-    User[浏览器] --> Web[Vue 3 Web]
-    Web --> Gateway[Spring Cloud Gateway]
+    User[浏览器] --> Web[Vue 3 管理端]
+    Web --> Gateway[统一网关]
 
-    Gateway --> IAM[IAM Service]
-    Gateway --> Knowledge[Knowledge Service]
-    Gateway --> Ingest[Ingest Service]
-    Gateway --> Chat[Chat Service]
+    Gateway --> IAM[身份与权限服务]
+    Gateway --> Knowledge[知识库服务]
+    Gateway --> Ingest[导入任务服务]
+    Gateway --> Chat[AI 会话服务]
 
     IAM --> Redis[(Redis)]
     Knowledge --> MinIO[(MinIO)]
     Knowledge --> MQ[(RabbitMQ)]
     MQ --> Ingest
     Ingest --> MQ
-    MQ --> RAG[FastAPI RAG Service]
+    MQ --> RAG[Python RAG 服务]
 
     Chat -->|查询可见文档| Knowledge
     Chat -->|SSE 问答| RAG
@@ -222,19 +222,21 @@ DocBase-Microservices/
 ├─ database/       # MySQL Schema、账号与 Nacos 初始化脚本
 ├─ deploy/         # Compose、服务治理和可观测性配置
 ├─ scripts/        # Windows PowerShell 启停、重置与验证脚本
-└─ docs/           # 架构、API、事件契约、ADR 与运行手册
+└─ docs/           # 架构、安全、RAG、API、事件契约与运行手册
 ```
 
 ## 文档导航
 
-- [架构概览](docs/architecture/overview.md)
-- [架构决策 ADR](docs/adr/0001-foundation-architecture-decisions.md)
-- [IAM API](docs/api/iam.md)
-- [Knowledge API](docs/api/knowledge.md)
-- [Ingest API](docs/api/ingest.md)
-- [Chat API 与 SSE 协议](docs/api/chat.md)
-- [事件契约](docs/events/README.md)
-- [本地运行手册](docs/runbook/README.md)
+完整目录与推荐阅读顺序见 [项目文档中心](docs/README.md)。
+
+| 文档 | 内容 |
+| --- | --- |
+| [系统架构](docs/architecture/overview.md) | 服务边界、核心链路、数据归属与基础设施 |
+| [身份认证与数据权限](docs/architecture/security.md) | JWT、RBAC、菜单归属、组织范围与检索权限 |
+| [RAG 文档处理与问答链路](docs/architecture/rag.md) | 解析、清洗、分块、召回、重排、生成与引用 |
+| [API 接口索引](docs/api/README.md) | IAM、Knowledge、Ingest 与 Chat 接口入口 |
+| [文档入库事件契约](docs/events/README.md) | Outbox、任务事件、幂等、重试与版本兼容 |
+| [本地运行手册](docs/runbook/README.md) | 环境配置、启停、重建、验证与常见问题 |
 
 ## 安全说明
 
