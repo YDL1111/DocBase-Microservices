@@ -134,6 +134,8 @@ const menuLoading = ref(false);
 const menuSubmitting = ref(false);
 const treeRef = ref<any>();
 const menuMounted = ref(false);
+const selectedMenuCount = ref(0);
+const menuExpanded = ref(true);
 
 /**
  * 菜单对话框是否"就绪可提交"：仅当菜单树与已选 ID 均成功加载、
@@ -418,6 +420,7 @@ function showRoleLifecycleError(err: unknown) {
 async function openMenuDialog(role: SysRole) {
   // 立即清空旧数据，避免旧勾选在新查询期间残留展示
   menuTree.value = [];
+  selectedMenuCount.value = 0;
   menuTargetRole.value = role;
   menuDialogVisible.value = true;
   menuLoading.value = true;
@@ -446,6 +449,7 @@ async function openMenuDialog(role: SysRole) {
     // 只有成功调用 setCheckedKeys 后才置 menuReady=true。
     if (!treeRef.value) return;
     treeRef.value.setCheckedKeys(ids ?? []);
+    selectedMenuCount.value = (ids ?? []).length;
     // 树与勾选均已就绪，允许提交
     menuReady.value = true;
   } catch {
@@ -456,6 +460,33 @@ async function openMenuDialog(role: SysRole) {
       menuLoading.value = false;
     }
   }
+}
+
+function allMenuIds(nodes: MenuNode[]): number[] {
+  return nodes.flatMap(node => [node.menuId, ...allMenuIds(node.children ?? [])]);
+}
+
+function updateSelectedCount() {
+  selectedMenuCount.value = (treeRef.value?.getCheckedKeys?.() ?? []).length;
+}
+
+function selectAllMenus() {
+  treeRef.value?.setCheckedKeys?.(allMenuIds(menuTree.value));
+  updateSelectedCount();
+}
+
+function clearAllMenus() {
+  treeRef.value?.setCheckedKeys?.([]);
+  updateSelectedCount();
+}
+
+function toggleMenuExpansion() {
+  menuExpanded.value = !menuExpanded.value;
+  const visit = (nodes: any[]) => nodes.forEach(node => {
+    node.expanded = menuExpanded.value;
+    visit(node.childNodes ?? []);
+  });
+  visit(treeRef.value?.store?.root?.childNodes ?? []);
 }
 
 /**
@@ -630,7 +661,7 @@ onMounted(() => {
               :icon="Key"
               @click="openMenuDialog(scope.row)"
             >
-              分配菜单
+              分配菜单权限
             </el-button>
             <el-button
               v-auth="'system:role:update'"
@@ -758,7 +789,7 @@ onMounted(() => {
     <!-- 菜单授权对话框 -->
     <el-dialog
       v-model="menuDialogVisible"
-      :title="menuTargetRole ? `分配菜单 - ${menuTargetRole.roleName}` : '分配菜单'"
+      :title="menuTargetRole ? `分配菜单权限 · ${menuTargetRole.roleName}` : '分配菜单权限'"
       width="640px"
       destroy-on-close
       :close-on-click-modal="false"
@@ -767,6 +798,17 @@ onMounted(() => {
         <el-skeleton :rows="5" animated />
       </div>
       <div v-else>
+        <div class="menu-permission-toolbar">
+          <div>
+            <strong>已选 {{ selectedMenuCount }} 项</strong>
+            <span>勾选功能菜单和按钮权限，保存时会自动补齐访问路径。</span>
+          </div>
+          <div class="menu-tools">
+            <el-button size="small" @click="selectAllMenus">全选</el-button>
+            <el-button size="small" @click="clearAllMenus">清空</el-button>
+            <el-button size="small" @click="toggleMenuExpansion">{{ menuExpanded ? "收起" : "展开" }}</el-button>
+          </div>
+        </div>
         <el-tree
           ref="treeRef"
           :data="menuTree"
@@ -775,6 +817,7 @@ onMounted(() => {
           show-checkbox
           default-expand-all
           check-strictly
+          @check="updateSelectedCount"
         />
       </div>
       <template #footer>
@@ -824,4 +867,8 @@ onMounted(() => {
 .menu-loading {
   padding: 16px;
 }
+.menu-permission-toolbar { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:12px; padding:12px 14px; background:#f6f9fd; border:1px solid #e4ebf4; border-radius:6px; }
+.menu-permission-toolbar strong { display:block; color:#315f96; font-size:14px; }
+.menu-permission-toolbar span { display:block; margin-top:3px; color:#7a8798; font-size:12px; }
+.menu-tools { display:flex; flex-shrink:0; }
 </style>
