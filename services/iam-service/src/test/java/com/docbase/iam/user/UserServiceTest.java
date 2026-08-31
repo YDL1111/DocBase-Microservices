@@ -2,6 +2,7 @@ package com.docbase.iam.user;
 
 import com.docbase.common.core.BusinessException;
 import com.docbase.iam.auth.AuthService;
+import com.docbase.iam.organization.OrganizationService;
 import com.docbase.iam.role.RoleService;
 import com.docbase.iam.security.IamUserPrincipal;
 import com.docbase.iam.security.TokenStore;
@@ -39,6 +40,7 @@ class UserServiceTest {
     private TokenStore tokenStore;
     private AdminMutexMapper adminMutexMapper;
     private RoleService roleService;
+    private OrganizationService organizationService;
     private PlatformTransactionManager transactionManager;
     private UserService userService;
 
@@ -51,11 +53,13 @@ class UserServiceTest {
         tokenStore = mock(TokenStore.class);
         adminMutexMapper = mock(AdminMutexMapper.class);
         roleService = mock(RoleService.class);
+        organizationService = mock(OrganizationService.class);
         transactionManager = mock(PlatformTransactionManager.class);
         // 单元测试无真实数据库，桩装守卫行锁定始终"成功"（lockGuardRow 返回 1），
         // 聚焦测试资源级授权与最后管理员保护逻辑本身。
         when(adminMutexMapper.lockGuardRow()).thenReturn(1);
-        userService = new UserService(userMapper, userRoleMapper, passwordEncoder, authService, tokenStore, adminMutexMapper, roleService, transactionManager);
+        userService = new UserService(userMapper, userRoleMapper, passwordEncoder, authService,
+                tokenStore, adminMutexMapper, roleService, organizationService, transactionManager);
     }
 
     @AfterEach

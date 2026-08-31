@@ -76,7 +76,8 @@ public class AuthService {
         long authVersion = tokenStore.initAuthVersion(userId);
         Set<String> permissions = loadPermissions(userId);
 
-        String access = tokenProvider.signAccess(String.valueOf(userId), user.getUsername(), permissions, authVersion);
+        String access = tokenProvider.signAccess(String.valueOf(userId), user.getUsername(),
+                user.getOrganizationId(), permissions, authVersion);
         String refresh = tokenProvider.signRefresh(String.valueOf(userId), sessionVersion);
         String refreshJti = extractVerifiedJti(refresh);
         tokenStore.storeRefresh(refreshJti, userId, sessionVersion, tokenProvider.refreshTtl());
@@ -85,7 +86,7 @@ public class AuthService {
 
         UserInfo userInfo = new UserInfo(
                 userId, user.getUsername(), user.getNickname(), user.getEmail(),
-                user.getPhoneNumber(), user.getIsAdmin() != null && user.getIsAdmin() == 1);
+                user.getPhoneNumber(), user.getOrganizationId(), user.getIsAdmin() != null && user.getIsAdmin() == 1);
         log.info("User logged in: {}", user.getUsername());
         return new AuthResult(access, refresh, tokenProvider.accessTtl().getSeconds(), userInfo, permissions);
     }
@@ -143,7 +144,8 @@ public class AuthService {
         // Step 6: Atomically rotate the refresh token (prevents concurrent replay)
         long authVersion = tokenStore.initAuthVersion(userId);
         Set<String> permissions = loadPermissions(userId);
-        String newAccess = tokenProvider.signAccess(String.valueOf(userId), user.getUsername(), permissions, authVersion);
+        String newAccess = tokenProvider.signAccess(String.valueOf(userId), user.getUsername(),
+                user.getOrganizationId(), permissions, authVersion);
         String newRefresh = tokenProvider.signRefresh(String.valueOf(userId), currentVersion);
         String newJti = extractVerifiedJti(newRefresh);
 
@@ -159,7 +161,7 @@ public class AuthService {
 
         UserInfo userInfo = new UserInfo(
                 userId, user.getUsername(), user.getNickname(), user.getEmail(),
-                user.getPhoneNumber(), user.getIsAdmin() != null && user.getIsAdmin() == 1);
+                user.getPhoneNumber(), user.getOrganizationId(), user.getIsAdmin() != null && user.getIsAdmin() == 1);
         return new AuthResult(newAccess, newRefresh, tokenProvider.accessTtl().getSeconds(), userInfo, permissions);
     }
 
@@ -188,7 +190,7 @@ public class AuthService {
             return null;
         }
         return new UserInfo(user.getUserId(), user.getUsername(), user.getNickname(),
-                user.getEmail(), user.getPhoneNumber(),
+                user.getEmail(), user.getPhoneNumber(), user.getOrganizationId(),
                 user.getIsAdmin() != null && user.getIsAdmin() == 1);
     }
 

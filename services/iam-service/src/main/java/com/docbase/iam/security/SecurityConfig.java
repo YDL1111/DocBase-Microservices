@@ -17,7 +17,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 @Configuration
 @EnableMethodSecurity(prePostEnabled = true)
-@EnableConfigurationProperties({JwtProperties.class, AuthProperties.class, com.docbase.iam.auth.AdminSetupProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, AuthProperties.class,
+        com.docbase.iam.auth.AdminSetupProperties.class, com.docbase.iam.auth.RegistrationProperties.class})
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;

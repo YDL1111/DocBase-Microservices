@@ -299,6 +299,7 @@ services:
       IAM_JWT_REFRESH_TTL: ${IAM_JWT_REFRESH_TTL:-7d}
       # Interactive first-admin setup is disabled unless this operator key is configured.
       IAM_ADMIN_SETUP_KEY: ${IAM_ADMIN_SETUP_KEY:-}
+      IAM_REGISTRATION_ENABLED: ${IAM_REGISTRATION_ENABLED:-true}
       # Optional unattended first-admin creation. Disable after the first successful boot.
       IAM_INIT_ADMIN_ENABLED: ${IAM_INIT_ADMIN_ENABLED:-false}
       IAM_INIT_ADMIN_USERNAME: ${IAM_INIT_ADMIN_USERNAME:-admin}

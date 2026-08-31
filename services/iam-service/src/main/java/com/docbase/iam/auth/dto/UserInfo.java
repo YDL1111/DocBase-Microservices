@@ -6,6 +6,7 @@ public record UserInfo(
         String nickname,
         String email,
         String phoneNumber,
+        Long organizationId,
         boolean admin
 ) {
 }

@@ -53,8 +53,13 @@ public class JwtTokenProvider {
      * The authVersion claim enables immediate invalidation on logout/disable/password change.
      */
     public String signAccess(String subject, String username, Collection<String> permissions, long authVersion) {
+        return signAccess(subject, username, null, permissions, authVersion);
+    }
+
+    public String signAccess(String subject, String username, Long organizationId,
+                             Collection<String> permissions, long authVersion) {
         Instant now = Instant.now();
-        return Jwts.builder()
+        var builder = Jwts.builder()
                 .subject(subject)
                 .issuer(properties.issuer())
                 .issuedAt(Date.from(now))
@@ -63,9 +68,9 @@ public class JwtTokenProvider {
                 .claim("username", username)
                 .claim("token_type", "access")
                 .claim("permissions", permissions)
-                .claim("auth_version", authVersion)
-                .signWith(privateKey)
-                .compact();
+                .claim("auth_version", authVersion);
+        if (organizationId != null) builder.claim("organization_id", organizationId);
+        return builder.signWith(privateKey).compact();
     }
 
     /**

@@ -4,6 +4,7 @@ import com.docbase.iam.auth.dto.AuthResult;
 import com.docbase.iam.auth.dto.AdminSetupRequest;
 import com.docbase.iam.auth.dto.AdminSetupStatus;
 import com.docbase.iam.auth.dto.LoginRequest;
+import com.docbase.iam.auth.dto.RegisterRequest;
 import com.docbase.iam.auth.dto.MenuNode;
 import com.docbase.iam.auth.dto.UserInfo;
 import com.docbase.iam.security.IamUserPrincipal;
@@ -21,10 +22,13 @@ public class AuthController {
 
     private final AuthService authService;
     private final AdminSetupService adminSetupService;
+    private final RegistrationService registrationService;
 
-    public AuthController(AuthService authService, AdminSetupService adminSetupService) {
+    public AuthController(AuthService authService, AdminSetupService adminSetupService,
+                          RegistrationService registrationService) {
         this.authService = authService;
         this.adminSetupService = adminSetupService;
+        this.registrationService = registrationService;
     }
 
     @GetMapping("/setup")
@@ -40,6 +44,16 @@ public class AuthController {
     @PostMapping("/login")
     ApiResponse<AuthResult> login(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.success(authService.login(request));
+    }
+
+    @GetMapping("/registration")
+    ApiResponse<Boolean> registrationStatus() {
+        return ApiResponse.success(registrationService.enabled());
+    }
+
+    @PostMapping("/register")
+    ApiResponse<Long> register(@Valid @RequestBody RegisterRequest request) {
+        return ApiResponse.success(registrationService.register(request));
     }
 
     @PostMapping("/refresh")

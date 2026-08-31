@@ -1,6 +1,7 @@
 -- H2-compatible IAM schema for tests (MySQL mode)
 CREATE TABLE IF NOT EXISTS sys_user (
     user_id      BIGINT       AUTO_INCREMENT PRIMARY KEY,
+    organization_id BIGINT,
     username     VARCHAR(64)  NOT NULL,
     nickname     VARCHAR(64)  NOT NULL DEFAULT '',
     password     VARCHAR(128) NOT NULL,
@@ -20,6 +21,23 @@ CREATE TABLE IF NOT EXISTS sys_user (
     deleted      TINYINT      NOT NULL DEFAULT 0
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uk_sys_user_username ON sys_user(username);
+
+CREATE TABLE IF NOT EXISTS sys_organization (
+    organization_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    parent_id BIGINT NOT NULL DEFAULT 0,
+    organization_name VARCHAR(128) NOT NULL,
+    organization_code VARCHAR(64) NOT NULL,
+    sort_num INT NOT NULL DEFAULT 0,
+    status TINYINT NOT NULL DEFAULT 1,
+    is_system TINYINT NOT NULL DEFAULT 0,
+    remark VARCHAR(512) NOT NULL DEFAULT '',
+    creator_id BIGINT,
+    create_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updater_id BIGINT,
+    update_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted TINYINT NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_sys_organization_code ON sys_organization(organization_code);
 
 CREATE TABLE IF NOT EXISTS sys_role (
     role_id     BIGINT       AUTO_INCREMENT PRIMARY KEY,

@@ -18,6 +18,7 @@ import java.util.List;
  * 校验前去重。
  */
 public record UpdateUserRequest(
+        @Positive(message = "organizationId must be positive") Long organizationId,
         String nickname,
         String email,
         String phoneNumber,

@@ -54,13 +54,13 @@ class FlywayMigrationValidationTest {
     }
 
     @Test
-    void V1到V12迁移应全部成功执行() {
+    void V1到V13迁移应全部成功执行() {
         DataSource ds = dataSource("flyway_full");
         MigrateResult result = flyway(ds, "classpath:db/migration").migrate();
 
-        assertTrue(result.success, "V1→V12 迁移应全部成功");
-        assertEquals(12, result.migrationsExecuted,
-                "应顺序执行 V1、V2、V3、V4、V5、V6、V7、V8、V9、V10、V11、V12 共 12 个迁移");
+        assertTrue(result.success, "V1→V13 迁移应全部成功");
+        assertEquals(13, result.migrationsExecuted,
+                "应顺序执行 V1 到 V13 共 13 个迁移");
 
         JdbcTemplate jdbc = new JdbcTemplate(ds);
         // V1 建立了 service_metadata
@@ -137,6 +137,37 @@ class FlywayMigrationValidationTest {
                 "SELECT COUNT(*) FROM sys_menu_owner_role mor JOIN sys_menu m ON m.menu_id = mor.menu_id "
                         + "WHERE m.router_name = 'SystemMenu'", Integer.class);
         assertEquals(1, ownerLink, "V12 应把 SystemMenu 的管理归属写入 sys_menu_owner_role");
+
+        // V13 建立组织树、用户组织归属、组织管理菜单与开放注册最小角色。
+        Integer organizationTable = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'SYS_ORGANIZATION'", Integer.class);
+        assertEquals(1, organizationTable, "V13 应建立 sys_organization");
+        Integer userOrganizationColumn = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'SYS_USER' AND COLUMN_NAME = 'ORGANIZATION_ID'",
+                Integer.class);
+        assertEquals(1, userOrganizationColumn, "V13 应为 sys_user 增加 organization_id");
+        Integer seededOrganizations = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_organization WHERE organization_code IN ('docbase_hq','docbase_rd','docbase_ops') AND deleted = 0",
+                Integer.class);
+        assertEquals(3, seededOrganizations, "V13 应预置总部、研发中心和运营中心");
+        Integer organizationMenu = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE router_name = 'SystemOrganization' AND deleted = 0", Integer.class);
+        assertEquals(1, organizationMenu, "V13 应创建组织管理页面菜单");
+        Integer organizationPermissions = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_menu WHERE permission IN ('system:org:list','system:org:create','system:org:update','system:org:delete') AND deleted = 0",
+                Integer.class);
+        assertEquals(5, organizationPermissions,
+                "组织管理页面与查看按钮共享 list 权限，V13 应创建页面及四个按钮共五行");
+        Integer registeredRole = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_role WHERE role_key = 'registered_user' AND status = 1 AND deleted = 0",
+                Integer.class);
+        assertEquals(1, registeredRole, "V13 应创建自助注册固定最小权限角色");
+        Integer registeredAdminPermissions = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_role_menu rm JOIN sys_role r ON r.role_id = rm.role_id "
+                        + "JOIN sys_menu m ON m.menu_id = rm.menu_id "
+                        + "WHERE r.role_key = 'registered_user' AND (m.permission LIKE 'system:%' OR m.permission = 'admin:all')",
+                Integer.class);
+        assertEquals(0, registeredAdminPermissions, "自助注册角色不得获得系统管理权限");
     }
 
     @Test

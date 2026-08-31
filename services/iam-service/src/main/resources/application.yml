@@ -58,10 +58,15 @@ iam:
       - /actuator/prometheus
       - /api/auth/ping
       - /api/auth/login
+      - /api/auth/register
+      - /api/auth/registration
       - /api/auth/refresh
       - /api/auth/setup
   admin-setup:
     key: ${IAM_ADMIN_SETUP_KEY:}
+  registration:
+    enabled: ${IAM_REGISTRATION_ENABLED:true}
+    default-role-key: registered_user
   init-admin:
     enabled: ${IAM_INIT_ADMIN_ENABLED:false}
     username: ${IAM_INIT_ADMIN_USERNAME:admin}

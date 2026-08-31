@@ -1,14 +1,14 @@
 # IAM API 文档
 
-IAM 服务提供认证、用户管理、角色管理、菜单管理和权限计算能力。所有接口通过
+IAM 服务提供认证、用户管理、角色管理、菜单管理、组织管理和权限计算能力。所有接口通过
 Gateway 路由到 `iam-service`。
 
 ## 路由前缀
 
 | 前缀 | 说明 |
 | --- | --- |
-| `/api/auth/**` | 认证接口（登录、刷新、注销、当前用户、权限、菜单） |
-| `/api/system/**` | 系统管理接口（用户、角色、菜单 CRUD） |
+| `/api/auth/**` | 认证接口（登录、注册、刷新、注销、当前用户、权限、菜单） |
+| `/api/system/**` | 系统管理接口（用户、角色、菜单、组织 CRUD） |
 
 ## 认证方式
 
@@ -89,6 +89,7 @@ Gateway 通过 Redis 按来源共享限流：每秒补充 1 个令牌，最多�
       "nickname": "Administrator",
       "email": "",
       "phoneNumber": "",
+      "organizationId": 2,
       "admin": true
     },
     "permissions": ["system:user:list", "system:role:list"]
@@ -98,6 +99,26 @@ Gateway 通过 Redis 按来源共享限流：每秒补充 1 个令牌，最多�
 
 错误：
 - `401 BAD_CREDENTIALS` - 用户名或密码错误，或账号被禁用
+
+### GET /api/auth/registration
+
+匿名。返回布尔值，表示当前部署是否开放自助注册。
+
+### POST /api/auth/register
+
+匿名。请求仅允许账号资料：
+
+```json
+{
+  "username": "alice",
+  "nickname": "Alice",
+  "email": "alice@example.com",
+  "password": "your-strong-password"
+}
+```
+
+服务端固定关联 `registered_user` 最小权限角色；请求不能指定 `roleIds`、`organizationId`
+或管理员标记。新账号初始不属于任何组织，需由管理员在用户管理中分配。
 
 ### POST /api/auth/refresh
 
@@ -157,6 +178,9 @@ Gateway 通过 Redis 按来源共享限流：每秒补充 1 个令牌，最多�
 | PUT | `/api/system/users/{userId}/password` | `system:user:reset-password` |
 | GET | `/api/system/users/{userId}/roles` | `system:user:list` |
 
+创建、更新用户均可使用可空字段 `organizationId`。组织变更会提升用户授权版本，旧 access
+token 立即失效；用户重新登录或刷新 token 后获得新的 `organization_id` claim。
+
 ### 角色管理
 
 | 方法 | 路径 | 权限 |
@@ -169,10 +193,25 @@ Gateway 通过 Redis 按来源共享限流：每秒补充 1 个令牌，最多�
 | DELETE | `/api/system/roles/{roleId}` | `system:role:delete` |
 | PUT | `/api/system/roles/{roleId}/status` | `system:role:update` |
 | GET | `/api/system/roles/{roleId}/menus` | `system:role:list` |
+| PUT | `/api/system/roles/{roleId}/menus` | `system:role:update` |
 
 角色停用或删除时，若该角色仍是某些菜单的唯一有效 Owner，服务端返回
 `ROLE_LAST_MENU_OWNER` 并拒绝操作。应先将这些菜单的管理归属转让给其他有效角色；
 不得通过自动清空 Owner 绕过该保护。
+
+### 组织管理
+
+| 方法 | 路径 | 权限 |
+| --- | --- | --- |
+| GET | `/api/system/organizations` | `system:org:list` |
+| POST | `/api/system/organizations` | `system:org:create` |
+| PUT | `/api/system/organizations/{organizationId}` | `system:org:update` |
+| DELETE | `/api/system/organizations/{organizationId}` | `system:org:delete` |
+
+组织树最大 8 层；父组织必须启用；禁止循环。存在下级组织或用户时不能删除；存在启用的
+下级组织或启用用户时不能停用。Knowledge 服务将 JWT 的 `organization_id` 与知识库、
+文档创建时的组织快照比较：公开内容可读、同组织部门内容可读、私有内容仍要求成员关系。
+历史 `organization_id=NULL` 数据保持 fail-closed，不会因升级扩大可见范围。
 
 ### 菜单管理
 
@@ -224,6 +263,10 @@ Owner 只写入 `sys_menu_owner_role`，用于界定菜单管理权；角色菜�
 | `system:menu:create` | 创建菜单 |
 | `system:menu:update` | 修改菜单 |
 | `system:menu:delete` | 删除菜单 |
+| `system:org:list` | 查看组织树 |
+| `system:org:create` | 创建组织 |
+| `system:org:update` | 修改或启停组织 |
+| `system:org:delete` | 删除空组织 |
 
 ---
 

@@ -42,6 +42,7 @@ public class UserController {
     ApiResponse<Long> create(@Valid @RequestBody CreateUserRequest request) {
         SysUser user = new SysUser();
         user.setUsername(request.username());
+        user.setOrganizationId(request.organizationId());
         user.setNickname(request.nickname());
         user.setPassword(request.password());
         user.setEmail(request.email());
@@ -57,6 +58,7 @@ public class UserController {
     ApiResponse<Void> update(@PathVariable Long userId, @Valid @RequestBody UpdateUserRequest request) {
         SysUser user = new SysUser();
         user.setUserId(userId);
+        user.setOrganizationId(request.organizationId());
         user.setNickname(request.nickname());
         user.setEmail(request.email());
         user.setPhoneNumber(request.phoneNumber());

@@ -17,6 +17,7 @@ import java.util.List;
  */
 public record CreateUserRequest(
         @NotBlank String username,
+        @Positive(message = "organizationId must be positive") Long organizationId,
         String nickname,
         @NotBlank String password,
         String email,

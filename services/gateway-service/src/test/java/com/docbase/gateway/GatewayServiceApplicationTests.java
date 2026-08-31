@@ -26,7 +26,25 @@ class GatewayServiceApplicationTests {
 
     @Test
     void contextLoads() {
-        assertThat(securityProperties.anonymousPaths()).contains("/api/auth/setup");
+        assertThat(securityProperties.anonymousPaths())
+                .contains("/api/auth/setup", "/api/auth/register", "/api/auth/registration");
+    }
+
+    @Test
+    void anonymousRegistrationPostUsesSharedRedisRateLimiter() {
+        List<RouteDefinition> routes = routeDefinitionLocator.getRouteDefinitions().collectList().block();
+        assertThat(routes).isNotNull();
+        RouteDefinition registrationRoute = routes.stream()
+                .filter(route -> "iam-registration".equals(route.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(registrationRoute.getOrder()).isEqualTo(-10);
+        assertThat(registrationRoute.getPredicates())
+                .extracting(predicate -> predicate.getName())
+                .contains("Path", "Method");
+        assertThat(registrationRoute.getFilters())
+                .extracting(filter -> filter.getName())
+                .contains("RequestRateLimiter");
     }
 
     @Test

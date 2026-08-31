@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.docbase.common.core.BusinessException;
 import com.docbase.iam.auth.AuthService;
+import com.docbase.iam.organization.OrganizationService;
 import com.docbase.iam.role.RoleService;
 import com.docbase.iam.security.IamUserPrincipal;
 import com.docbase.iam.security.TokenStore;
@@ -31,6 +32,7 @@ public class UserService {
     private final AuthService authService;
     private final TokenStore tokenStore;
     private final TransactionTemplate transactionTemplate;
+    private final OrganizationService organizationService;
 
     /**
      * 角色分配授权：校验调用者是否可以把指定角色分配给用户（角色存在/启用/未删除、
@@ -61,6 +63,7 @@ public class UserService {
                        PasswordEncoder passwordEncoder, AuthService authService,
                        TokenStore tokenStore, AdminMutexMapper adminMutexMapper,
                        RoleService roleService,
+                       OrganizationService organizationService,
                        PlatformTransactionManager transactionManager) {
         this.userMapper = userMapper;
         this.userRoleMapper = userRoleMapper;
@@ -69,6 +72,7 @@ public class UserService {
         this.tokenStore = tokenStore;
         this.adminMutexMapper = adminMutexMapper;
         this.roleService = roleService;
+        this.organizationService = organizationService;
         // 编程式事务：加锁 UPDATE 与 read-check-write 在同一个事务内执行，
         // 行锁由数据库持有到提交/回滚，从而让并发事务一定读到对方已提交的最新状态。
         this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -99,6 +103,7 @@ public class UserService {
         if (userMapper.selectCount(new QueryWrapper<SysUser>().eq("username", user.getUsername())) > 0) {
             throw new BusinessException("USERNAME_EXISTS", "username already exists");
         }
+        organizationService.assertActive(user.getOrganizationId());
         user.setPassword(passwordEncoder.encode(user.getPassword()));
         user.setStatus(user.getStatus() != null ? user.getStatus() : 1);
         user.setIsAdmin(user.getIsAdmin() != null ? user.getIsAdmin() : 0);
@@ -115,6 +120,10 @@ public class UserService {
             throw new BusinessException("USER_NOT_FOUND", "user not found");
         }
         assertCanOperate(caller, existing);
+        organizationService.assertActive(user.getOrganizationId());
+        boolean organizationChanged = !java.util.Objects.equals(
+                existing.getOrganizationId(), user.getOrganizationId());
+        existing.setOrganizationId(user.getOrganizationId());
         existing.setNickname(user.getNickname());
         existing.setEmail(user.getEmail());
         existing.setPhoneNumber(user.getPhoneNumber());
@@ -124,7 +133,9 @@ public class UserService {
         if (roleIds != null) {
             userRoleMapper.delete(new QueryWrapper<SysUserRole>().eq("user_id", user.getUserId()));
             assignRoles(user.getUserId(), roleIds);
-            // Role change invalidates permissions cache and sessions
+        }
+        if (roleIds != null || organizationChanged) {
+            // Role or organization changes alter the authorization context carried by access tokens.
             tokenStore.evictPermissions(user.getUserId());
             tokenStore.bumpAuthVersion(user.getUserId());
         }
