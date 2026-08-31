@@ -1,226 +1,249 @@
-# DocBase Microservices
+<p align="center">
+  <img src="web/public/logo.svg" width="76" alt="DocBase Logo" />
+</p>
 
-企业知识库微服务版是现有 DocBase 项目的第二版架构工程。当前仓库聚焦“基础工程初始化和
-基础设施可运行”，保留旧项目作为业务参考，不在本阶段大规模迁移 Java 业务、Vue 页面或
-完整 Python RAG。
+<h1 align="center">DocBase</h1>
 
-## 架构组件
+<p align="center">
+  企业知识库与 RAG 智能问答微服务平台
+</p>
 
-- Java 21、Spring Boot 3.5.16、Spring Cloud 2025.0.3
-- Spring Cloud Alibaba 2025.0.0.0、Nacos Server 3.1.1
-- Spring Cloud Gateway WebFlux、OpenFeign、WebClient
-- Spring Security 6、MyBatis-Plus 3.5.17、Flyway、HikariCP
-- MySQL 8.4、Redis 7.4 Alpine、RabbitMQ 4.2 Management Alpine
-- MinIO 固定 2025 Release、Chroma（后续 RAG 迁移继续保留）
-- Sentinel Dashboard（`governance` profile）
-- Prometheus、Grafana、Zipkin（`observability` profile）
+<p align="center">
+  <img src="https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white" alt="Java 21" />
+  <img src="https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white" alt="Python 3.11" />
+  <img src="https://img.shields.io/badge/Spring_Boot-3.5-6DB33F?logo=springboot&logoColor=white" alt="Spring Boot 3.5" />
+  <img src="https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white" alt="Vue 3" />
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose" />
+</p>
 
-## 目录说明
+DocBase 面向企业内部知识沉淀、文档共享与智能检索场景，提供知识库管理、文档全生命周期、
+异步入库、组织权限控制和多知识库 AI 问答能力。系统以 Java 服务承载业务与权限边界，
+以 Python 服务完成多格式文档解析、向量检索和流式生成，并在回答末尾提供可追溯的引用来源。
 
-```text
-services/       5 个独立 Spring Boot 应用
-libraries/      纯技术公共库与事件契约，不含共享业务模型
-rag-service/    Python FastAPI RAG 服务（文档解析、Embedding、Chroma、检索、SSE）
-web/            Vue 3 管理端，生产镜像由 Nginx 提供静态资源与 Gateway 反向代理
-deploy/         Compose、Nacos、Redis、RabbitMQ、MinIO、治理与观测配置
-database/       MySQL 多 Schema、独立账号和 Nacos 官方表结构初始化
-docs/           架构、ADR、API、事件、迁移和运行手册
-scripts/        Windows PowerShell 启停与验收脚本
+> 本仓库不包含任何真实密码、模型 API Key 或私钥。运行前请根据
+> [`.env.example`](.env.example) 创建本地配置。
+
+## 核心能力
+
+| 模块 | 能力 |
+| --- | --- |
+| 知识库管理 | 知识库、目录分类、成员协作，以及文档上传、预览、编辑、版本更新、重新入库和删除 |
+| 异步导入任务 | 任务状态跟踪、可靠事件投递、幂等消费、延迟重试、死信兜底和处理结果回传 |
+| 结构化文档处理 | 解析 PDF、Word、Excel、PPT 等格式，保留标题路径、页码、Sheet、Slide 与表格结构 |
+| RAG 智能问答 | 可选单个或多个知识库，支持问题改写、向量召回、去重、MMR 排序、上下文构建和 SSE 流式回答 |
+| 权限与组织 | 用户注册与认证、RBAC、菜单与按钮权限、组织树、公开/部门/私有知识可见范围 |
+| 安全检索 | 由业务服务计算可见文档集合，在向量召回阶段再次过滤，阻止越权片段进入大模型上下文 |
+
+## 系统架构
+
+```mermaid
+flowchart LR
+    User[浏览器] --> Web[Vue 3 Web]
+    Web --> Gateway[Spring Cloud Gateway]
+
+    Gateway --> IAM[IAM Service]
+    Gateway --> Knowledge[Knowledge Service]
+    Gateway --> Ingest[Ingest Service]
+    Gateway --> Chat[Chat Service]
+
+    IAM --> Redis[(Redis)]
+    Knowledge --> MinIO[(MinIO)]
+    Knowledge --> MQ[(RabbitMQ)]
+    MQ --> Ingest
+    Ingest --> MQ
+    MQ --> RAG[FastAPI RAG Service]
+
+    Chat -->|查询可见文档| Knowledge
+    Chat -->|SSE 问答| RAG
+    RAG --> Chroma[(Chroma)]
+    RAG --> MinIO
+
+    IAM --> MySQL[(MySQL / 独立 Schema)]
+    Knowledge --> MySQL
+    Ingest --> MySQL
+    Chat --> MySQL
+    RAG --> MySQL
 ```
 
-## 服务与端口
+所有客户端请求统一经过 Gateway。Gateway 会清理客户端伪造的身份请求头并验证 JWT，业务
+服务仍会独立完成认证与授权，不把网关作为唯一安全边界。Java 服务通过 Nacos 完成注册发现
+与配置管理；短请求使用同步调用，AI 长连接使用 WebClient 转发 SSE。
 
-| 组件 | 容器端口 | 宿主机端口 | 说明 |
-| --- | ---: | ---: | --- |
-| Web | 80 | 3000 | Vue 管理端唯一入口 |
-| gateway-service | 8080 | 8080 | 唯一业务 API 入口 |
-| iam-service | 8081 | 不暴露 | IAM 合并服务 |
-| knowledge-service | 8082 | 不暴露 | 知识与对象元数据 |
-| ingest-service | 8083 | 不暴露 | 导入和同步任务 |
-| chat-service | 8084 | 不暴露 | AI 会话与 SSE 编排 |
-| rag-service | 8090 | 不暴露 | 本阶段仅健康占位 |
-| Nacos API | 8848 | 8848 | 注册与配置 API |
-| Nacos Console | 8080 | 18080 | Nacos 3 控制台 |
-| RabbitMQ Management | 15672 | 15672 | 消息管理控制台 |
-| MinIO API / Console | 9000 / 9001 | 9000 / 9001 | 对象存储与控制台 |
-| Sentinel | 8858 | 8858 | governance profile |
-| Prometheus | 9090 | 9090 | observability profile |
-| Grafana | 3000 | 3001 | observability profile |
-| Zipkin | 9411 | 9411 | observability profile |
+### 文档入库链路
 
-MySQL、Redis、RabbitMQ AMQP 以及所有业务服务端口只在 Compose 网络内开放。
+```text
+文档上传到 MinIO
+  → Knowledge 在本地事务中保存文档并写入 Outbox
+  → RabbitMQ 可靠投递事件
+  → Ingest 幂等创建任务并维护状态机
+  → RAG 解析、清洗、分块、Embedding 并写入 Chroma
+  → 处理结果回传 Ingest，任务状态同步到前端
+```
 
-## 环境要求
+文档更新时先构建新版本向量，再切换活动版本；删除时先从业务可见范围排除，再异步清理
+向量。消息发布失败会进入延迟重试，超过上限后进入死信处理，避免业务记录与向量索引长期失配。
 
-- Windows 11 / Windows Server，PowerShell 7 或 Windows PowerShell 5.1
-- Java 21（项目强制编译目标为 21）
+### 权限下沉到检索层
+
+```text
+用户选择知识库
+  → Chat 向 Knowledge 查询当前用户可见的文档 ID
+  → RAG 仅在这些文档 ID 范围内召回 Chunk
+  → 去重与排序后构建上下文
+  → LLM 流式生成回答并返回独立引用来源
+```
+
+权限过滤发生在向量召回阶段，而不是只在页面或接口层隐藏数据，因此无权限内容不会进入
+Prompt，也不会通过回答被间接泄露。
+
+## 服务说明
+
+| 服务 | 主要职责 | 数据与依赖 |
+| --- | --- | --- |
+| `gateway-service` | 统一入口、路由、初步认证、限流与 Trace ID | Nacos、Redis |
+| `iam-service` | 登录注册、用户、角色、菜单、组织与权限计算 | MySQL、Redis |
+| `knowledge-service` | 知识库、目录、文档、成员、可见范围与 Outbox | MySQL、MinIO、RabbitMQ |
+| `ingest-service` | 导入任务、状态机、幂等消费、重试及结果反馈 | MySQL、RabbitMQ |
+| `chat-service` | 会话管理、多知识库绑定、权限编排与 SSE 转发 | MySQL、Redis |
+| `rag-service` | 文档解析、清洗、分块、Embedding、检索排序与回答生成 | Python、Chroma、MinIO |
+| `web` | 管理端、知识库工作区、导入任务和 AI 对话界面 | Vue 3、Element Plus |
+
+## 技术栈
+
+| 层级 | 主要技术 |
+| --- | --- |
+| Java 服务 | Java 21、Spring Boot 3.5、Spring Cloud 2025、Spring Cloud Alibaba、Spring Security、MyBatis-Plus、Flyway |
+| Python / RAG | Python 3.11、FastAPI、LangChain、BGE-M3、Chroma、OpenAI-compatible Chat API |
+| Web | Vue 3、TypeScript、Vite、Pinia、Vue Router、Element Plus |
+| 基础设施 | MySQL 8.4、Redis、RabbitMQ、MinIO、Nacos、Docker Compose |
+| 可观测性 | Actuator、Prometheus、Grafana、Zipkin、统一 Trace ID |
+
+## 快速开始
+
+### 1. 环境要求
+
+- Windows 10/11 与 PowerShell 5.1+
+- JDK 21
 - Docker Desktop 与 Docker Compose v2
 - Git
+- OpenSSL（用于生成本地 RS256 密钥）
 
-仓库包含 Maven Wrapper 3.9.11，不要求全局安装 Maven。本机若存在较新的 JDK，也必须能够
-使用 `--release 21`；推荐仍将 `JAVA_HOME` 指向 JDK 21。
+项目包含 Maven Wrapper，无需额外安装 Maven。BGE-M3 在本地运行，不需要 Embedding API Key，
+但需要可用的 Hugging Face 模型缓存。
 
-## 环境变量
-
-只提交了 `.env.example`。首次运行可复制为 `.env` 并替换全部 `change-me-*` /
-`replace-with-*` 占位值：
+### 2. 克隆并创建本地配置
 
 ```powershell
+git clone https://github.com/YDL1111/DocBase-Microservices.git
+Set-Location DocBase-Microservices
 Copy-Item .env.example .env
 ```
 
-`.env` 已被忽略，禁止复制旧仓库中的真实 API Key、数据库密码或 JWT 私钥到受版本控制文件。
-聊天模型通过 `CHAT_API_KEY`、`CHAT_BASE_URL` 和 `CHAT_MODEL` 接入任意 OpenAI-compatible 服务，Embedding 固定为本地 `BAAI/bge-m3`；
-后续 RAG 容器复用本机已有 HuggingFace 缓存。
+编辑 `.env`，至少完成以下配置：
 
-## 启动命令
+- 替换所有 `change-me-*`、`replace-with-*` 占位值；
+- 设置 `HF_HOME` 指向本机 Hugging Face 缓存；
+- 配置 `CHAT_API_KEY`、`CHAT_BASE_URL` 和 `CHAT_MODEL`；
+- 为首次管理员初始化设置 32～256 位的 `IAM_ADMIN_SETUP_KEY`。
 
-启动基础设施并执行幂等初始化：
+`.env` 已加入 `.gitignore`，请勿提交真实密钥。
+
+### 3. 生成本地 JWT 密钥
 
 ```powershell
-.\scripts\start-infra.ps1
+New-Item -ItemType Directory -Force .local/keys | Out-Null
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 `
+  -out .local/keys/docbase-iam-private.pem
+openssl pkey -in .local/keys/docbase-iam-private.pem -pubout `
+  -out .local/keys/docbase-iam-public.pem
 ```
 
-RabbitMQ、MinIO、Nacos 的初始化任务使用独立 `bootstrap` profile，并以
-`docker compose run --rm` 临时容器执行。任务成功后容器会自动删除，不会作为已退出的
-init 容器长期显示在 Docker Desktop 中。
+私钥仅供 IAM 签发 Token，Gateway 和其他服务只读取公钥。`.local/` 已被 Git 忽略。
 
-编译测试并启动全部应用：
+### 4. 启动项目
 
 ```powershell
+# 启动并初始化 MySQL、Redis、RabbitMQ、MinIO、Nacos
+.\scripts\start-infra.ps1
+
+# 编译测试并启动全部应用
 .\scripts\start-apps.ps1
 ```
 
-### 首次创建管理员
+首次构建耗时取决于 Maven、npm、Python 依赖和模型缓存情况。启动完成后访问：
 
-系统不提供开放注册，`admin` 也没有硬编码默认密码。首次部署前，在项目根目录 `.env` 中设置
-一个只由部署人员知道的初始化密钥：
+- Web 管理端：<http://localhost:3000>
+- Gateway 健康检查：<http://localhost:8080/actuator/health>
+- Nacos 控制台：<http://localhost:18080>
+- RabbitMQ 控制台：<http://localhost:15672>
+- MinIO 控制台：<http://localhost:9001>
 
-```dotenv
-IAM_ADMIN_SETUP_KEY=请替换为至少32位的高强度随机字符串
-```
+当数据库中不存在有效超级管理员时，登录页会显示“初始化管理员”入口。使用 `.env` 中的
+`IAM_ADMIN_SETUP_KEY` 创建第一个管理员后，建议清空该变量并重新构建 `iam-service`。
+普通用户是否可以自助注册由 `IAM_REGISTRATION_ENABLED` 控制。
 
-重新构建并启动后访问 `http://localhost:8080`。当数据库中不存在有效超级管理员时，旧版
-DocBase 登录页会自动显示“初始化管理员”，输入上面的密钥并自行设置管理员账号和密码。
-创建成功后该入口会由后端自动关闭，不能用于普通用户注册。完成后可清空 `.env` 中的
-`IAM_ADMIN_SETUP_KEY`，并在下次启动时重建 `iam-service`。
-
-如果数据库里已有管理员但忘记密码，请在 Docker 已启动的管理员 PowerShell 中运行：
+### 5. 日常管理
 
 ```powershell
-.\scripts\reset-admin-password.ps1 -Username admin
+.\scripts\status.ps1    # 查看服务状态
+.\scripts\stop.ps1      # 停止服务，保留容器、网络和数据卷
+.\scripts\start-apps.ps1 -SkipBuild  # 使用现有镜像重新启动
+.\scripts\down.ps1      # 删除容器和网络，仍保留命名卷
+.\scripts\verify.ps1    # 编译、测试、配置校验与基础冒烟
 ```
 
-脚本通过安全输入读取新密码，不会把明文密码写入命令行、日志或仓库；它只重置已有超级
-管理员，并使该账号的旧 Token 失效。默认不会恢复已停用或已删除的账号；确需恢复时必须显式加
-`-Reactivate`。
+日常关闭请优先使用 `stop.ps1`。不要随意执行 `docker compose down -v`，否则会删除本地数据卷。
 
-按需启用治理或观测：
+## 本地端口
 
-```powershell
-docker compose -f deploy/compose.yml -f deploy/compose.dev.yml --profile governance up -d
-docker compose -f deploy/compose.yml -f deploy/compose.dev.yml --profile observability up -d
+| 组件 | 地址 | 说明 |
+| --- | --- | --- |
+| Web | `http://localhost:3000` | 用户访问入口 |
+| Gateway | `http://localhost:8080` | 唯一业务 API 入口 |
+| MySQL | `127.0.0.1:3309` | 仅开发覆盖配置暴露 |
+| Nacos | `8848` / `http://localhost:18080` | API / 控制台 |
+| RabbitMQ | `http://localhost:15672` | 管理控制台 |
+| MinIO | `http://localhost:9000` / `http://localhost:9001` | API / 控制台 |
+| Grafana | `http://localhost:3001` | `observability` profile |
+| Prometheus | `http://localhost:9090` | `observability` profile |
+| Zipkin | `http://localhost:9411` | `observability` profile |
+
+IAM、Knowledge、Ingest、Chat 和 RAG 服务不直接暴露宿主机端口，仅可通过 Gateway 或 Compose
+内部网络访问。
+
+## 项目结构
+
+```text
+DocBase-Microservices/
+├─ services/       # Gateway 与 4 个 Java 业务服务
+├─ libraries/      # BOM、通用 Web/Security 能力与事件契约
+├─ rag-service/    # Python FastAPI RAG 服务
+├─ web/            # Vue 3 管理端与 AI 对话界面
+├─ database/       # MySQL Schema、账号与 Nacos 初始化脚本
+├─ deploy/         # Compose、服务治理和可观测性配置
+├─ scripts/        # Windows PowerShell 启停、重置与验证脚本
+└─ docs/           # 架构、API、事件契约、ADR 与运行手册
 ```
 
-查看状态或日常停止（容器、网络和命名卷均保留）：
+## 文档导航
 
-```powershell
-.\scripts\status.ps1
-.\scripts\stop.ps1
-```
+- [架构概览](docs/architecture/overview.md)
+- [架构决策 ADR](docs/adr/0001-foundation-architecture-decisions.md)
+- [IAM API](docs/api/iam.md)
+- [Knowledge API](docs/api/knowledge.md)
+- [Ingest API](docs/api/ingest.md)
+- [Chat API 与 SSE 协议](docs/api/chat.md)
+- [事件契约](docs/events/README.md)
+- [本地运行手册](docs/runbook/README.md)
 
-首次成功运行 `start-apps.ps1` 后，Docker Desktop 中的 `docbase-ms` 项目只包含长期运行
-服务。日常可直接点击项目级启动按钮，无需重新执行初始化任务。若需要删除容器和项目网络
-后重新创建，请显式运行（命名卷仍会保留）：
+## 安全说明
 
-```powershell
-.\scripts\down.ps1
-```
+- 真实 `.env`、JWT 私钥和本地模型缓存不得提交到仓库；
+- Gateway 会移除客户端传入的 `X-User-*` 身份头，业务服务仍独立验签和授权；
+- 内部服务调用使用独立 API Key，RAG 检索使用业务侧计算的可见文档集合；
+- 生产环境应使用 Secret 管理系统替代本地文件和普通环境变量，并关闭不必要的宿主机端口；
+- 修改初始化账号密码不会自动更新已有数据卷中的账号，请先阅读运行手册再处理持久化环境。
 
-不要把 `down.ps1` 作为日常停止命令；它会移除 Docker Desktop 中可一键重启的容器。
+---
 
-一键执行编译、测试、Compose 校验、基础设施和 Gateway/IAM 冒烟：
-
-```powershell
-.\scripts\verify.ps1
-```
-
-## 健康检查
-
-```powershell
-Invoke-RestMethod http://localhost:8080/actuator/health
-Invoke-RestMethod http://localhost:8080/api/auth/ping
-Invoke-RestMethod http://localhost:8848/nacos/v1/ns/operator/metrics
-Invoke-RestMethod http://localhost:9000/minio/health/live
-```
-
-第二个请求必须由 Gateway 通过 `lb://iam-service` 转发并返回
-`data.service = "iam-service"`。
-
-## 数据边界
-
-本地只有一个 MySQL 8.4 容器，但初始化 `nacos_config`、`docbase_iam`、
-`docbase_knowledge`、`docbase_ingest`、`docbase_chat`、`docbase_rag` 六个 Schema。
-每个账号只获得自己的 Schema 权限。Java 服务 Flyway 迁移位于各自
-`src/main/resources/db/migration`，Hikari `maximum-pool-size` 均为 5。
-
-## 常见问题
-
-### 默认 Java 是 17
-
-设置当前会话的 `JAVA_HOME` 为 JDK 21 后再运行 Wrapper。项目 Enforcer 会拒绝低于 21 的
-JDK，避免误用 Java 17 构建。
-
-### Nacos 首次启动较慢
-
-首次启动会等待 MySQL 初始化并创建管理员、Namespace 和配置，通常需要 1～2 分钟。
-使用 `docker compose ... logs nacos` 查看 Nacos 进度；临时 `nacos-init` 的输出会直接显示在
-`start-infra.ps1` 控制台中，并在结束后自动删除。若初始化因密码配置失败，应先核对 `.env`
-与已有数据卷中的账号状态；仅在确认无需保留本项目数据后，才单独重建对应
-`docbase-ms_mysql-data` 卷，不要操作旧项目卷。
-
-### 修改初始化密码后服务无法连接
-
-MySQL、Nacos 等初始化账号只在空数据卷时创建。已有卷不会因修改 `.env` 自动改密，应通过
-管理接口变更密码，或在确认无需保留本项目数据后单独重建对应 `docbase-ms` 卷。
-
-### Gateway 返回 502
-
-先检查 IAM 健康状态以及它是否注册在 `docbase-dev` Namespace、
-`DOCBASE_GROUP` Group，再检查 Gateway 与 IAM 使用的 Namespace ID 是否一致。
-
-### 端口冲突
-
-Gateway 使用宿主机 8080；Nacos 3 控制台映射到 18080，避免与 Gateway 冲突。
-
-## 当前阶段完成内容
-
-- Maven 多模块与统一 BOM
-- 5 个独立 Spring Boot 应用、独立 Dockerfile 和最小上下文测试
-- Gateway 的 4 条固定 `lb://` 路由
-- Nacos Discovery/Config 的 `spring.config.import` 接入和 6 个配置模板
-- 单 MySQL 多 Schema/账号、服务独立 Flyway、Redis ACL、RabbitMQ 拓扑、MinIO 受限用户
-- infrastructure/application/bootstrap/governance/observability Compose profiles
-- RAG 服务、Vue 管理端与 PowerShell 运维脚本
-- Actuator、Prometheus 指标、统一响应/异常、Trace ID 日志
-
-当前安全骨架已替换为真实 IAM 能力：非对称 RS256 JWT 签发/验签、Redis 登录态
-管理（Refresh Token 轮换、会话版本、密码修改失效）、BCrypt 密码编码、基于权限
-字符串的方法级授权。Gateway 使用公钥做初步认证，iam-service 使用私钥签发并独立
-验签。详见 [IAM API 文档](docs/api/iam.md) 和 [迁移文档](docs/migration/iam-migration.md)。
-
-**Knowledge 业务迁移已完成**：知识库管理、目录树、文档元数据、成员管理、权限控制、
-Outbox 事件。详见 [Knowledge API 文档](docs/api/knowledge.md) 和
-[迁移文档](docs/migration/knowledge-migration.md)。
-
-## 下一阶段迁移顺序
-
-1. **IAM（已完成）**：迁移 `sys_*`、登录态、非对称 JWT 和权限缓存。
-2. **Knowledge（已完成）**：迁移知识库、目录、文档元数据、成员、权限和 Outbox。
-3. **Ingest（已完成）**：实现 Outbox 发布、RabbitMQ 幂等消费、任务状态机、状态反馈事件。
-4. RAG：迁移现有 FastAPI/Chroma/OpenAI-compatible Chat/BGE-M3 链路并接入 Nacos。
-5. Chat：迁移会话、`visible_doc_ids` 权限下沉与 WebClient SSE。
-6. 前端与 Agent：复用 Vue 页面，最后迁移管理员 Agent 工具。
-
-更多设计见 [架构概览](docs/architecture/overview.md) 和
-[ADR-0001](docs/adr/0001-foundation-architecture-decisions.md)。
+如果这个项目对你有帮助，欢迎通过 Issue 交流使用过程中遇到的问题。
