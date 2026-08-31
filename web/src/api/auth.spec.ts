@@ -7,7 +7,9 @@ import {
   getPermissionsApi,
   getMenusApi,
   getAdminSetupStatus,
-  setupFirstAdmin
+  setupFirstAdmin,
+  getRegistrationStatus,
+  registerApi
 } from "./auth";
 
 // 模拟 request 层
@@ -91,5 +93,22 @@ describe("auth api", () => {
     };
     await setupFirstAdmin(request);
     expect(http.post).toHaveBeenCalledWith("/api/auth/setup", request);
+  });
+
+  it("registration status uses anonymous endpoint without global errors", async () => {
+    (http.get as any).mockResolvedValue(true);
+    await getRegistrationStatus();
+    expect(http.get).toHaveBeenCalledWith("/api/auth/registration", {
+      skipGlobalErrorMessage: true
+    });
+  });
+
+  it("registerApi only sends public account fields", async () => {
+    (http.post as any).mockResolvedValue(12);
+    const data = { username: "alice", nickname: "Alice", email: "a@b.com", password: "password123" };
+    await registerApi(data);
+    expect(http.post).toHaveBeenCalledWith("/api/auth/register", data);
+    expect((http.post as any).mock.calls[0][1]).not.toHaveProperty("roleIds");
+    expect((http.post as any).mock.calls[0][1]).not.toHaveProperty("organizationId");
   });
 });

@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { FormInstance, FormRules } from "element-plus";
 import { Key, Lock, User } from "@element-plus/icons-vue";
-import { getAdminSetupStatus, loginApi, setupFirstAdmin } from "@/api/auth";
+import { getAdminSetupStatus, getRegistrationStatus, loginApi, registerApi, setupFirstAdmin } from "@/api/auth";
 import { setLoginResult } from "@/utils/auth";
 import { useUserStoreHook } from "@/store/modules/user";
 import { message } from "@/utils/message";
@@ -18,10 +18,11 @@ const user = useUserStoreHook();
 const mounted = ref(true);
 
 const rememberedUsername = localStorage.getItem(REMEMBERED_USERNAME_KEY) || "";
-const mode = ref<"login" | "setup">("login");
+const mode = ref<"login" | "register" | "setup">("login");
 const setupRequired = ref(false);
 const setupEnabled = ref(false);
 const setupStatusLoading = ref(true);
+const registrationEnabled = ref(false);
 
 const loginFormRef = ref<FormInstance>();
 const loading = ref(false);
@@ -34,6 +35,16 @@ const setupForm = reactive({
   setupKey: "",
   username: "admin",
   nickname: "Administrator",
+  password: "",
+  confirmPassword: ""
+});
+
+const registerFormRef = ref<FormInstance>();
+const registerLoading = ref(false);
+const registerForm = reactive({
+  username: "",
+  nickname: "",
+  email: "",
   password: "",
   confirmPassword: ""
 });
@@ -83,13 +94,25 @@ const setupRules: FormRules = {
   confirmPassword: [{ required: true, message: "请再次输入密码", trigger: "blur" }]
 };
 
+const registerRules: FormRules = {
+  username: setupRules.username,
+  nickname: setupRules.nickname,
+  email: [{ type: "email", message: "请输入正确的邮箱地址", trigger: "blur" }],
+  password: setupRules.password,
+  confirmPassword: [{ required: true, message: "请再次输入密码", trigger: "blur" }]
+};
+
 onMounted(async () => {
   try {
-    const status = await getAdminSetupStatus();
+    const [status, registerStatus] = await Promise.all([
+      getAdminSetupStatus(),
+      getRegistrationStatus().catch(() => false)
+    ]);
     if (!mounted.value) return;
     setupRequired.value = status.required;
     setupEnabled.value = status.enabled;
     if (status.required) mode.value = "setup";
+    registrationEnabled.value = registerStatus;
   } catch {
     // IAM 尚未启动时保留正常登录表单，不制造额外的全局报错。
   } finally {
@@ -166,10 +189,40 @@ async function handleSetup(formEl: FormInstance | undefined) {
     if (mounted.value) setupLoading.value = false;
   }
 }
+
+async function handleRegister(formEl: FormInstance | undefined) {
+  if (!formEl || registerLoading.value || !registrationEnabled.value) return;
+  registerLoading.value = true;
+  try {
+    if (!await formEl.validate().catch(() => false) || !mounted.value) return;
+    if (registerForm.password !== registerForm.confirmPassword) {
+      message.error("两次输入的密码不一致");
+      return;
+    }
+    const username = registerForm.username.trim();
+    await registerApi({
+      username,
+      nickname: registerForm.nickname.trim(),
+      email: registerForm.email.trim() || undefined,
+      password: registerForm.password
+    });
+    if (!mounted.value) return;
+    loginForm.username = username;
+    loginForm.password = "";
+    registerForm.password = "";
+    registerForm.confirmPassword = "";
+    mode.value = "login";
+    message.success("注册成功，请登录；组织归属可由管理员稍后分配");
+  } catch {
+    // 请求层统一提示，失败保留输入。
+  } finally {
+    if (mounted.value) registerLoading.value = false;
+  }
+}
 </script>
 
 <template>
-  <main class="login-page" :class="{ 'setup-mode': mode === 'setup' }">
+  <main class="login-page" :class="{ 'setup-mode': mode !== 'login' }">
     <img class="login-wave" :src="backgroundUrl" alt="" aria-hidden="true" />
     <section class="login-container" aria-label="DocBase 账号入口">
       <div class="illustration-column" aria-hidden="true">
@@ -181,11 +234,14 @@ async function handleSetup(formEl: FormInstance | undefined) {
           <h1>DocBase</h1>
           <p class="login-subtitle">企业文档知识库管理平台</p>
 
-          <div v-if="setupRequired" class="mode-switch" aria-label="账号入口选择">
+          <div v-if="setupRequired || registrationEnabled" class="mode-switch" :class="{ triple: setupRequired && registrationEnabled }" aria-label="账号入口选择">
             <button type="button" :class="{ active: mode === 'login' }" @click="mode = 'login'">
               登录
             </button>
-            <button type="button" :class="{ active: mode === 'setup' }" @click="mode = 'setup'">
+            <button v-if="registrationEnabled" type="button" :class="{ active: mode === 'register' }" @click="mode = 'register'">
+              注册
+            </button>
+            <button v-if="setupRequired" type="button" :class="{ active: mode === 'setup' }" @click="mode = 'setup'">
               初始化管理员
             </button>
           </div>
@@ -213,6 +269,23 @@ async function handleSetup(formEl: FormInstance | undefined) {
             <el-button type="primary" class="login-button" :loading="loading" @click="handleLogin(loginFormRef)">
               登录
             </el-button>
+          </el-form>
+
+          <el-form
+            v-else-if="mode === 'register'"
+            ref="registerFormRef"
+            :model="registerForm"
+            :rules="registerRules"
+            size="large"
+            @keyup.enter="handleRegister(registerFormRef)"
+          >
+            <p class="setup-hint">注册后可使用公开知识库与 AI 对话；组织和更多权限由管理员分配。</p>
+            <el-form-item prop="username"><el-input v-model="registerForm.username" :prefix-icon="User" placeholder="用户名" autocomplete="username" /></el-form-item>
+            <el-form-item prop="nickname"><el-input v-model="registerForm.nickname" :prefix-icon="User" placeholder="昵称" /></el-form-item>
+            <el-form-item prop="email"><el-input v-model="registerForm.email" :prefix-icon="User" placeholder="邮箱（选填）" autocomplete="email" /></el-form-item>
+            <el-form-item prop="password"><el-input v-model="registerForm.password" :prefix-icon="Lock" type="password" placeholder="密码（8～72 字节）" autocomplete="new-password" show-password /></el-form-item>
+            <el-form-item prop="confirmPassword"><el-input v-model="registerForm.confirmPassword" :prefix-icon="Lock" type="password" placeholder="再次输入密码" autocomplete="new-password" show-password /></el-form-item>
+            <el-button type="primary" class="login-button" :loading="registerLoading" @click="handleRegister(registerFormRef)">创建账号</el-button>
           </el-form>
 
           <div v-else class="setup-panel">
@@ -272,7 +345,8 @@ async function handleSetup(formEl: FormInstance | undefined) {
 .brand-logo { display: block; width: 66px; height: 66px; margin: 0 auto 12px; }
 h1 { margin: 0; color: #606266; font-family: Consolas, Monaco, "Courier New", monospace; font-size: 32px; font-weight: 700; line-height: 1.25; letter-spacing: 0.04em; }
 .login-subtitle { margin: 10px 0 28px; color: #909399; font-size: 14px; line-height: 1.6; }
-.mode-switch { display: grid; grid-template-columns: 1fr 1fr; margin: -8px 0 20px; border-bottom: 1px solid #ebeef5; }
+.mode-switch { display: grid; grid-template-columns: repeat(2, 1fr); margin: -8px 0 20px; border-bottom: 1px solid #ebeef5; }
+.mode-switch.triple { grid-template-columns: repeat(3, 1fr); }
 .mode-switch button { padding: 10px 6px; color: #909399; font: inherit; background: transparent; border: 0; border-bottom: 2px solid transparent; cursor: pointer; }
 .mode-switch button.active { color: var(--el-color-primary); font-weight: 600; border-bottom-color: var(--el-color-primary); }
 .setup-hint { margin: -4px 0 16px; color: #909399; font-size: 12px; line-height: 1.7; }

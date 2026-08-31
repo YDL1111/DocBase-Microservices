@@ -29,11 +29,13 @@ import {
   resetPassword,
   getUserRoles
 } from "@/api/system-user";
+import { listOrganizations } from "@/api/organization";
 import { message } from "@/utils/message";
 import {
   type SysUser,
   type CreateUserRequest,
   type UpdateUserRequest,
+  type SysOrganization,
   UserStatus,
   userStatusLabel,
   userStatusTagType
@@ -44,6 +46,24 @@ import {
 const loading = ref(false);
 const users = ref<SysUser[]>([]);
 const total = ref(0);
+const organizations = ref<SysOrganization[]>([]);
+
+const organizationTree = computed(() => {
+  const nodes = new Map<number, SysOrganization & { disabled?: boolean }>();
+  organizations.value.forEach(row => nodes.set(row.organizationId, { ...row, children: [], disabled: row.status !== 1 }));
+  const roots: Array<SysOrganization & { disabled?: boolean }> = [];
+  nodes.forEach(node => {
+    const parent = nodes.get(node.parentId);
+    if (parent) parent.children!.push(node);
+    else roots.push(node);
+  });
+  return roots;
+});
+
+function organizationName(id: number | null | undefined): string {
+  if (!id) return "未分配";
+  return organizations.value.find(item => item.organizationId === id)?.organizationName ?? `组织 ${id}`;
+}
 
 /** 请求序号：每次发起列表请求时递增，防止旧响应覆盖新响应 */
 let requestSeq = 0;
@@ -110,6 +130,7 @@ const form = reactive<CreateUserRequest & UpdateUserRequest>({
   phoneNumber: "",
   sex: 0,
   status: UserStatus.ENABLED,
+  organizationId: null,
   remark: ""
 });
 
@@ -258,6 +279,7 @@ function resetForm() {
   form.phoneNumber = "";
   form.sex = 0;
   form.status = UserStatus.ENABLED;
+  form.organizationId = null;
   form.remark = "";
 }
 
@@ -277,6 +299,7 @@ function openEditDialog(user: SysUser) {
   form.phoneNumber = user.phoneNumber;
   form.sex = user.sex;
   form.remark = user.remark;
+  form.organizationId = user.organizationId;
   formDialogVisible.value = true;
 }
 
@@ -294,7 +317,8 @@ async function handleSubmit() {
         email: form.email,
         phoneNumber: form.phoneNumber,
         sex: form.sex,
-        remark: form.remark
+        remark: form.remark,
+        organizationId: form.organizationId
       };
       await updateUser(editingUser.value.userId, data);
       message.success("更新成功");
@@ -307,7 +331,8 @@ async function handleSubmit() {
         phoneNumber: form.phoneNumber,
         sex: form.sex,
         status: form.status,
-        remark: form.remark
+        remark: form.remark,
+        organizationId: form.organizationId
       };
       await createUser(data);
       message.success("创建成功");
@@ -438,6 +463,9 @@ async function openRolesDialog(user: SysUser) {
 
 onMounted(() => {
   fetchUsers("user");
+  listOrganizations().then(rows => {
+    if (mounted.value) organizations.value = rows;
+  }).catch(() => undefined);
 });
 </script>
 
@@ -480,6 +508,9 @@ onMounted(() => {
       <el-table-column prop="username" label="用户名" min-width="140" />
       <el-table-column prop="nickname" label="昵称" min-width="140" show-overflow-tooltip />
       <el-table-column prop="email" label="邮箱" min-width="180" show-overflow-tooltip />
+      <el-table-column label="所属组织" min-width="150">
+        <template #default="scope"><span v-if="scope?.row">{{ organizationName(scope.row.organizationId) }}</span></template>
+      </el-table-column>
       <el-table-column label="状态" width="100">
         <template #default="scope">
           <el-tag v-if="scope?.row" :type="userStatusTagType(scope.row.status)">
@@ -606,6 +637,18 @@ onMounted(() => {
             <el-option :value="2" label="女" />
           </el-select>
         </el-form-item>
+        <el-form-item label="所属组织" prop="organizationId">
+          <el-tree-select
+            v-model="form.organizationId"
+            :data="organizationTree"
+            node-key="organizationId"
+            :props="{ label: 'organizationName', value: 'organizationId', children: 'children', disabled: 'disabled' }"
+            check-strictly
+            clearable
+            placeholder="可暂不分配组织"
+            style="width: 100%"
+          />
+        </el-form-item>
         <el-form-item v-if="dialogMode === 'create'" label="状态" prop="status">
           <el-select v-model="form.status" style="width: 100%">
             <el-option :value="UserStatus.ENABLED" label="启用" />
@@ -636,6 +679,7 @@ onMounted(() => {
         <el-descriptions-item label="昵称">{{ detailUser.nickname }}</el-descriptions-item>
         <el-descriptions-item label="邮箱">{{ detailUser.email }}</el-descriptions-item>
         <el-descriptions-item label="手机号">{{ detailUser.phoneNumber }}</el-descriptions-item>
+        <el-descriptions-item label="所属组织">{{ organizationName(detailUser.organizationId) }}</el-descriptions-item>
         <el-descriptions-item label="性别">
           {{ detailUser.sex === 1 ? "男" : detailUser.sex === 2 ? "女" : "未知" }}
         </el-descriptions-item>

@@ -5,6 +5,8 @@ import { h, type Slots } from "vue";
 const mocks = vi.hoisted(() => ({
   loginApi: vi.fn(),
   getAdminSetupStatus: vi.fn(),
+  getRegistrationStatus: vi.fn(),
+  registerApi: vi.fn(),
   setupFirstAdmin: vi.fn(),
   setLoginResult: vi.fn(),
   setUserInfo: vi.fn(),
@@ -18,6 +20,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/api/auth", () => ({
   loginApi: mocks.loginApi,
   getAdminSetupStatus: mocks.getAdminSetupStatus,
+  getRegistrationStatus: mocks.getRegistrationStatus,
+  registerApi: mocks.registerApi,
   setupFirstAdmin: mocks.setupFirstAdmin
 }));
 vi.mock("@/utils/auth", () => ({ setLoginResult: mocks.setLoginResult }));
@@ -94,6 +98,7 @@ describe("DocBase 登录与首次管理员初始化", () => {
     vi.clearAllMocks();
     localStorage.clear();
     mocks.getAdminSetupStatus.mockResolvedValue({ required: false, enabled: false });
+    mocks.getRegistrationStatus.mockResolvedValue(false);
     mocks.validate.mockResolvedValue(true);
   });
 
@@ -220,5 +225,25 @@ describe("DocBase 登录与首次管理员初始化", () => {
     resolveValidation(true);
     await flushPromises();
     expect(mocks.setupFirstAdmin).toHaveBeenCalledTimes(1);
+  });
+
+  it("开放注册时创建最小权限账号并回填登录用户名", async () => {
+    mocks.getRegistrationStatus.mockResolvedValue(true);
+    mocks.registerApi.mockResolvedValue(21);
+    const wrapper = mountLogin();
+    await flushPromises();
+    await wrapper.findAll(".mode-switch button").find(button => button.text() === "注册")!.trigger("click");
+    await wrapper.get('input[placeholder="用户名"]').setValue("alice");
+    await wrapper.get('input[placeholder="昵称"]').setValue("Alice");
+    await wrapper.get('input[placeholder="邮箱（选填）"]').setValue("alice@example.com");
+    await wrapper.get('input[placeholder="密码（8～72 字节）"]').setValue("password123");
+    await wrapper.get('input[placeholder="再次输入密码"]').setValue("password123");
+    await wrapper.get(".login-button").trigger("click");
+    await flushPromises();
+    expect(mocks.registerApi).toHaveBeenCalledWith({
+      username: "alice", nickname: "Alice", email: "alice@example.com", password: "password123"
+    });
+    expect(mocks.registerApi.mock.calls[0][0]).not.toHaveProperty("roleIds");
+    expect(wrapper.get('input[placeholder="用户名"]')).toBeTruthy();
   });
 });

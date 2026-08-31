@@ -50,7 +50,8 @@ const componentRegistry: Record<string, () => Promise<any>> = {
   SystemManage: RouterViewWrapper,
   SystemUser: () => import("@/views/system/user/index.vue"),
   SystemRole: () => import("@/views/system/role/index.vue"),
-  SystemMenu: () => import("@/views/system/menu/index.vue")
+  SystemMenu: () => import("@/views/system/menu/index.vue"),
+  SystemOrganization: () => import("@/views/system/organization/index.vue")
 };
 
 /** 根据 routerName 解析组件，未命中则回退占位页 */

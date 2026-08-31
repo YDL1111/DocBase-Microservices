@@ -6,6 +6,7 @@ import { UploadFilled } from "@element-plus/icons-vue";
 import { uploadDocument } from "@/api/knowledge";
 import type { FolderNode } from "@/api/types";
 import { message } from "@/utils/message";
+import { useUserStoreHook } from "@/store/modules/user";
 
 const DOCUMENT_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 const DOCUMENT_UPLOAD_ACCEPT = ".pdf,.docx,.xlsx,.pptx,.txt";
@@ -32,6 +33,7 @@ const submittedFingerprint = ref<string | null>(null);
 const clientRequestId = ref<string | null>(null);
 const sourceChangedDuringUpload = ref(false);
 const form = reactive({ title: "", folderId: props.defaultFolderId || 0, visibility: 1, publishForChat: true });
+const userStore = useUserStoreHook();
 
 const rules: FormRules = {
   title: [{ required: true, message: "请输入文档标题", trigger: "blur" }, { max: 256, message: "标题不能超过 256 个字符", trigger: "blur" }],
@@ -254,9 +256,10 @@ watch([() => form.title, () => form.folderId, () => form.visibility, () => form.
       </el-form-item>
       <el-form-item label="可见性" prop="visibility">
         <el-radio-group v-model="form.visibility" :disabled="uploading">
-          <el-radio :value="1">私有</el-radio><el-radio :value="2">部门</el-radio><el-radio :value="3">公开</el-radio>
+          <el-radio :value="1">私有</el-radio><el-radio :value="2" :disabled="!userStore.organizationId">同组织可见</el-radio><el-radio :value="3">公开</el-radio>
         </el-radio-group>
-        <div v-if="form.visibility === 2" class="visibility-note">部门可见性当前按后端 fail-closed 策略处理，部门成员不保证可见。</div>
+        <div v-if="form.visibility === 2" class="visibility-note">仅与当前账号属于同一组织的成员可见。</div>
+        <div v-else-if="!userStore.organizationId" class="visibility-note">当前账号尚未分配组织，部门可见选项暂不可用。</div>
       </el-form-item>
       <el-form-item label="AI 问答">
         <el-switch v-model="form.publishForChat" :disabled="uploading" active-text="入库完成后用于问答" />

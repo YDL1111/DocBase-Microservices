@@ -18,6 +18,7 @@ export interface UserState {
   email: string;
   phoneNumber: string;
   admin: boolean;
+  organizationId: number | null;
   permissions: string[];
 }
 
@@ -32,6 +33,7 @@ export const useUserStore = defineStore({
       email: info?.email ?? "",
       phoneNumber: info?.phoneNumber ?? "",
       admin: info?.admin ?? false,
+      organizationId: info?.organizationId ?? null,
       permissions: []
     };
   },
@@ -47,6 +49,7 @@ export const useUserStore = defineStore({
       this.email = info.email;
       this.phoneNumber = info.phoneNumber;
       this.admin = info.admin;
+      this.organizationId = info.organizationId ?? null;
       persistUserInfo(info);
     },
     setPermissions(perms: string[] | Set<string>) {
@@ -65,6 +68,7 @@ export const useUserStore = defineStore({
       this.email = "";
       this.phoneNumber = "";
       this.admin = false;
+      this.organizationId = null;
       this.permissions = [];
       removeToken();
     }

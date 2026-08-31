@@ -12,11 +12,13 @@ import { ElMessageBox } from "element-plus";
 import { Plus, Edit, Delete, View } from "@element-plus/icons-vue";
 import { listKnowledgeBases, createKnowledgeBase, updateKnowledgeBase, deleteKnowledgeBase } from "@/api/knowledge";
 import { useKnowledgeStoreHook } from "@/store/modules/knowledge";
+import { useUserStoreHook } from "@/store/modules/user";
 import { message } from "@/utils/message";
 import type { KnowledgeBase, CreateKnowledgeBaseRequest, UpdateKnowledgeBaseRequest } from "@/api/types";
 
 const router = useRouter();
 const knowledgeStore = useKnowledgeStoreHook();
+const userStore = useUserStoreHook();
 
 const loading = ref(false);
 const dialogVisible = ref(false);
@@ -247,9 +249,11 @@ onMounted(() => {
         <el-form-item label="可见性" prop="visibility">
           <el-select v-model="form.visibility" style="width: 100%">
             <el-option :value="1" label="私有" />
-            <el-option :value="2" label="部门" />
+            <el-option :value="2" label="同组织可见" :disabled="!userStore.organizationId" />
             <el-option :value="3" label="公开" />
           </el-select>
+          <p v-if="!userStore.organizationId" class="visibility-hint">当前账号尚未分配组织，不能创建部门可见知识库。</p>
+          <p v-else class="visibility-hint">部门可见内容仅对当前组织成员开放。</p>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -283,4 +287,5 @@ onMounted(() => {
   margin-top: 16px;
   justify-content: flex-end;
 }
+.visibility-hint { margin: 6px 0 0; color: #7a8798; font-size: 12px; line-height: 1.5; }
 </style>

@@ -22,6 +22,14 @@ export interface LoginRequest {
   password: string;
 }
 
+/** 开放注册仅接收账号资料，角色、组织和管理员标记均由服务端决定。 */
+export interface RegisterRequest {
+  username: string;
+  nickname: string;
+  email?: string;
+  password: string;
+}
+
 /** 首次超级管理员初始化状态。required=false 后初始化入口永久关闭。 */
 export interface AdminSetupStatus {
   required: boolean;
@@ -58,6 +66,7 @@ export interface UserInfo {
   email: string;
   phoneNumber: string;
   admin: boolean;
+  organizationId?: number | null;
 }
 
 /**
@@ -153,6 +162,7 @@ export interface KnowledgeBase {
   name: string;
   description: string;
   ownerId: number;
+  organizationId?: number | null;
   visibility: number;
   status: number;
   sortNum: number;
@@ -204,6 +214,7 @@ export interface UpdateFolderRequest {
 export interface KnowledgeDocument {
   id: number;
   knowledgeBaseId: number;
+  organizationId?: number | null;
   folderId: number;
   title: string;
   originalFilename: string;
@@ -503,6 +514,7 @@ export function isCancelableStatus(status: string): boolean {
 /** 用户实体（对应 /api/system/users），password 返回前由后端置 null */
 export interface SysUser {
   userId: number;
+  organizationId?: number | null;
   username: string;
   nickname: string;
   email: string;
@@ -535,6 +547,7 @@ export interface CreateUserRequest {
   sex?: number;
   status?: number;
   remark?: string;
+  organizationId?: number | null;
   roleIds?: number[];
 }
 
@@ -549,6 +562,7 @@ export interface UpdateUserRequest {
   phoneNumber?: string;
   sex?: number;
   remark?: string;
+  organizationId?: number | null;
   roleIds?: number[];
 }
 
@@ -656,6 +670,33 @@ export function dataScopeLabel(scope: number): string {
 /** 分配菜单请求体 */
 export interface AssignRoleMenusRequest {
   menuIds: number[];
+}
+
+/* ============================================================
+ * 系统管理 - 组织管理
+ * ============================================================ */
+
+export interface SysOrganization {
+  organizationId: number;
+  parentId: number;
+  organizationName: string;
+  organizationCode: string;
+  sortNum: number;
+  status: number;
+  isSystem: number;
+  remark: string;
+  createTime: string;
+  updateTime: string;
+  children?: SysOrganization[];
+}
+
+export interface OrganizationRequest {
+  parentId: number;
+  organizationName: string;
+  organizationCode: string;
+  sortNum: number;
+  status: number;
+  remark?: string;
 }
 
 /* ============================================================
