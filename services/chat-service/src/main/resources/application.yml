@@ -1,6 +1,12 @@
 server:
   port: ${SERVER_PORT:8084}
   shutdown: graceful
+  tomcat:
+    threads:
+      max: ${HTTP_MAX_THREADS:64}
+      min-spare: ${HTTP_MIN_SPARE_THREADS:8}
+    max-connections: ${HTTP_MAX_CONNECTIONS:256}
+    accept-count: ${HTTP_ACCEPT_COUNT:64}
 
 spring:
   application:
@@ -60,6 +66,12 @@ jwt:
   fail-closed: ${JWT_FAIL_CLOSED:false}
 
 docbase:
+  executors:
+    chat-stream:
+      core-size: ${CHAT_STREAM_CORE_THREADS:4}
+      max-size: ${CHAT_STREAM_MAX_THREADS:8}
+      queue-capacity: ${CHAT_STREAM_QUEUE_CAPACITY:128}
+      keep-alive-seconds: ${CHAT_STREAM_KEEP_ALIVE_SECONDS:60}
   rag:
     base-url: ${RAG_BASE_URL:http://rag-service:8090}
     model: ${CHAT_MODEL:gpt-4o-mini}

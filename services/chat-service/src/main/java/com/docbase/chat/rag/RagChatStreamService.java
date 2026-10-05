@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
@@ -15,6 +16,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Scheduler;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -39,6 +41,7 @@ public class RagChatStreamService {
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final String internalApiKey;
+    private final Scheduler streamScheduler;
 
     public RagChatStreamService(
             WebClient.Builder webClientBuilder,
@@ -47,9 +50,11 @@ public class RagChatStreamService {
             @Value("${RAG_INTERNAL_API_KEY:}") String internalApiKey,
             @Value("${docbase.rag.connect-timeout:5s}") Duration connectTimeout,
             @Value("${docbase.rag.idle-timeout:120s}") Duration idleTimeout,
-            @Value("${docbase.rag.max-in-memory-size:256KB}") int maxInMemorySize) {
+            @Value("${docbase.rag.max-in-memory-size:256KB}") int maxInMemorySize,
+            @Qualifier("chatStreamScheduler") Scheduler streamScheduler) {
         this.objectMapper = objectMapper;
         this.internalApiKey = internalApiKey;
+        this.streamScheduler = streamScheduler;
         this.webClient = webClientBuilder
                 .baseUrl(baseUrl)
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(maxInMemorySize))
@@ -98,6 +103,9 @@ public class RagChatStreamService {
                 .retrieve()
                 .bodyToFlux(String.class)
                 .timeout(Duration.ofSeconds(120))
+                // Keep parsing, SSE writes and normal terminal persistence off Netty event loops.
+                // A small prefetch also bounds buffered upstream chunks per active stream.
+                .publishOn(streamScheduler, 16)
                 .flatMapIterable(RagChatStreamService::splitSseEvents)
                 .filter(line -> line != null && !line.isBlank())
                 .flatMap(line -> parseAndValidate(line, visibleDocumentIds))

@@ -1,8 +1,22 @@
 server:
   port: ${SERVER_PORT:8083}
   shutdown: graceful
+  tomcat:
+    threads:
+      max: ${HTTP_MAX_THREADS:64}
+      min-spare: ${HTTP_MIN_SPARE_THREADS:8}
+    max-connections: ${HTTP_MAX_CONNECTIONS:256}
+    accept-count: ${HTTP_ACCEPT_COUNT:64}
 
 spring:
+  task:
+    scheduling:
+      pool:
+        size: ${INGEST_SCHEDULER_THREADS:4}
+      thread-name-prefix: ingest-scheduled-
+      shutdown:
+        await-termination: true
+        await-termination-period: 15s
   application:
     name: ingest-service
   lifecycle:

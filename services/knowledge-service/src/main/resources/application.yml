@@ -1,8 +1,22 @@
 server:
   port: ${SERVER_PORT:8082}
   shutdown: graceful
+  tomcat:
+    threads:
+      max: ${HTTP_MAX_THREADS:64}
+      min-spare: ${HTTP_MIN_SPARE_THREADS:8}
+    max-connections: ${HTTP_MAX_CONNECTIONS:256}
+    accept-count: ${HTTP_ACCEPT_COUNT:64}
 
 spring:
+  task:
+    scheduling:
+      pool:
+        size: ${KNOWLEDGE_SCHEDULER_THREADS:2}
+      thread-name-prefix: knowledge-scheduled-
+      shutdown:
+        await-termination: true
+        await-termination-period: 15s
   application:
     name: knowledge-service
   lifecycle:

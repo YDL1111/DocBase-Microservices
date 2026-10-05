@@ -25,6 +25,8 @@ class RagChatStreamServiceTest {
     private MockWebServer mockWebServer;
     private RagChatStreamService service;
     private ObjectMapper objectMapper;
+    private org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor executor;
+    private reactor.core.scheduler.Scheduler scheduler;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -32,6 +34,10 @@ class RagChatStreamServiceTest {
         mockWebServer.start();
         objectMapper = new ObjectMapper();
         String baseUrl = mockWebServer.url("/").toString();
+        var config = new com.docbase.chat.config.ChatExecutorConfig();
+        executor = config.chatStreamExecutor(1, 2, 8, 60);
+        executor.initialize();
+        scheduler = config.chatStreamScheduler(executor);
         service = new RagChatStreamService(
                 org.springframework.web.reactive.function.client.WebClient.builder(),
                 objectMapper,
@@ -39,13 +45,16 @@ class RagChatStreamServiceTest {
                 "test-internal-key",
                 java.time.Duration.ofSeconds(5),
                 java.time.Duration.ofSeconds(120),
-                256 * 1024
+                256 * 1024,
+                scheduler
         );
     }
 
     @AfterEach
     void tearDown() throws Exception {
         mockWebServer.shutdown();
+        scheduler.dispose();
+        executor.shutdown();
     }
 
     @Test
@@ -186,6 +195,17 @@ class RagChatStreamServiceTest {
 
         StepVerifier.create(service.stream("问题", 1L, List.of(1L), 10L))
                 .assertNext(e -> assertThat(e.event()).isEqualTo(RagDtos.OUT_DONE))
+                .verifyComplete();
+    }
+
+    @Test
+    void stream_callbacksRunOffNetworkEventLoop() {
+        mockWebServer.enqueue(new MockResponse()
+                .setBody("data: {\"type\":\"done\",\"data\":null}\n\n")
+                .setHeader("Content-Type", "text/event-stream"));
+        StepVerifier.create(service.stream("question", 1L, List.of(1L), 10L))
+                .assertNext(event -> assertThat(Thread.currentThread().getName())
+                        .startsWith("chat-stream-"))
                 .verifyComplete();
     }
 }

@@ -23,6 +23,7 @@
 | 接口 | [API 接口索引](api/README.md) | 页面和服务应调用哪个接口 |
 | 事件 | [事件契约](events/README.md) | Knowledge、Ingest 与 RAG 如何异步协作 |
 | 运维 | [本地运行手册](runbook/README.md) | 如何启动、停止、重建和排查服务 |
+| 并发 | [Java 线程池与并发配置](runbook/thread-pools.md) | 调度、SSE 工作线程和 HTTP 并发如何配置 |
 
 ## 维护约定
 
