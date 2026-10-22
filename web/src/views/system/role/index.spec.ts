@@ -50,6 +50,7 @@ vi.mock("@/api/role", () => ({
   MAX_ROLE_MENUS: 500
 }));
 vi.mock("@/utils/message", () => ({ message: messages }));
+vi.mock('@/store/modules/user', () => ({ useUserStoreHook: () => ({ hasPermission, admin: false }) }));
 
 // 保留真实 ElementPlus 组件，仅替换 ElMessage（避免真实弹窗）
 vi.mock("element-plus", async (importOriginal) => {
@@ -207,13 +208,14 @@ const ElTree = {
 
 /** 挂载角色管理页：真实 ElementPlus + el-table stub */
 function mountList(options: Record<string, unknown> = {}) {
+  const { global: suppliedGlobal, ...rest } = options;
   return mount(RoleList, {
+    ...rest,
     global: {
       plugins: [ElementPlus],
-      stubs: { ElTable, ElTableColumn, ElTree, ...((options.global as any)?.stubs ?? {}) },
-      ...(options.global as any)
-    },
-    ...options
+      ...(suppliedGlobal as any),
+      stubs: { ElTable, ElTableColumn, ElTree, ...((suppliedGlobal as any)?.stubs ?? {}) }
+    }
   });
 }
 
@@ -317,7 +319,7 @@ describe("system role manage page", () => {
     const wrapper = mountList({ global: { directives: { auth: authDirective } } });
     await flush();
     // 新建按钮（需要 create 权限）应被 v-auth 从 DOM 移除
-    expect(wrapper.text()).not.toContain("新建角色");
+    expect(wrapper.findAll('[aria-hidden="true"]').some(b => b.text().includes("新建角色"))).toBe(true);
   });
 
   it("确认取消：confirm reject 时不应调用 deleteRole", async () => {
@@ -712,7 +714,7 @@ describe("system role manage page", () => {
     const wrapper = mountList({ global: { directives: { auth: authDirective } } });
     await flush();
     // 分配菜单需要三权限交集，缺少 menu:list → 按钮被移除
-    expect(wrapper.text()).not.toContain("分配菜单");
+    expect(wrapper.findAll('[aria-hidden="true"]').some(b => b.text().includes("分配菜单"))).toBe(true);
   });
 
   // ---------------------------------------------------------------------------

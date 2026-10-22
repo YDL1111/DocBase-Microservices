@@ -59,7 +59,8 @@ class UserServiceTest {
         // 聚焦测试资源级授权与最后管理员保护逻辑本身。
         when(adminMutexMapper.lockGuardRow()).thenReturn(1);
         userService = new UserService(userMapper, userRoleMapper, passwordEncoder, authService,
-                tokenStore, adminMutexMapper, roleService, organizationService, transactionManager);
+                tokenStore, adminMutexMapper, roleService, organizationService, transactionManager,
+                mock(com.docbase.iam.security.DirectoryScopePolicy.class));
     }
 
     @AfterEach
@@ -116,7 +117,7 @@ class UserServiceTest {
         setCaller(2, false);
         when(userMapper.selectById(3L)).thenReturn(user(3, 0));
 
-        userService.update(user(3, 0), List.of());
+        userService.update(user(3, 0), null);
 
         verify(userMapper).updateById(any(SysUser.class));
     }

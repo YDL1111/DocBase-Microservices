@@ -27,9 +27,11 @@ import {
   deleteUser,
   changeUserStatus,
   resetPassword,
-  getUserRoles
+  getUserRoles,
+  getUserManagementOptions,
+  assignUserRoles
 } from "@/api/system-user";
-import { listOrganizations } from "@/api/organization";
+import { useUserStoreHook } from "@/store/modules/user";
 import { message } from "@/utils/message";
 import {
   type SysUser,
@@ -47,6 +49,13 @@ const loading = ref(false);
 const users = ref<SysUser[]>([]);
 const total = ref(0);
 const organizations = ref<SysOrganization[]>([]);
+const availableRoles = ref<import('@/api/types').SysRole[]>([]);
+const userStore = useUserStoreHook();
+const canAssignRoles = computed(() => userStore.hasPermission('system:user:assign-role'));
+const optionsReady = ref(false);
+const roleSaving = ref(false);
+const rolesReady = ref(false);
+const roleLabels = computed(() => new Map(availableRoles.value.map(r => [r.roleId, r.roleName])));
 
 const organizationTree = computed(() => {
   const nodes = new Map<number, SysOrganization & { disabled?: boolean }>();
@@ -131,6 +140,7 @@ const form = reactive<CreateUserRequest & UpdateUserRequest>({
   sex: 0,
   status: UserStatus.ENABLED,
   organizationId: null,
+  roleIds: [],
   remark: ""
 });
 
@@ -280,6 +290,7 @@ function resetForm() {
   form.sex = 0;
   form.status = UserStatus.ENABLED;
   form.organizationId = null;
+  form.roleIds = [];
   form.remark = "";
 }
 
@@ -310,6 +321,9 @@ async function handleSubmit() {
   try {
     const valid = await formRef.value.validate().catch(() => false);
     if (!valid) return; // finally 释放锁
+    if (dialogMode.value === "create" && canAssignRoles.value && !optionsReady.value) {
+      message.error("角色选项尚未加载，请刷新后重试"); return;
+    }
 
     if (dialogMode.value === "edit" && editingUser.value) {
       const data: UpdateUserRequest = {
@@ -332,7 +346,8 @@ async function handleSubmit() {
         sex: form.sex,
         status: form.status,
         remark: form.remark,
-        organizationId: form.organizationId
+        organizationId: form.organizationId,
+        ...(canAssignRoles.value ? { roleIds: form.roleIds } : {})
       };
       await createUser(data);
       message.success("创建成功");
@@ -437,10 +452,12 @@ async function handleResetPassword() {
 
 async function openRolesDialog(user: SysUser) {
   // 切换用户时立即清空旧角色，避免旧数据在新查询期间残留展示
+  if (roleSaving.value) return;
   roles.value = [];
   rolesUser.value = user;
   rolesDialogVisible.value = true;
   rolesLoading.value = true;
+  rolesReady.value = false;
   const seq = ++rolesRequestSeq;
   rolesTargetUserId = user.userId;
   try {
@@ -448,6 +465,7 @@ async function openRolesDialog(user: SysUser) {
     // 仅当响应属于当前最新查询、目标用户未变、组件仍挂载时才写入
     if (seq !== rolesRequestSeq || user.userId !== rolesTargetUserId || !rolesMounted) return;
     roles.value = res;
+    rolesReady.value = true;
   } catch {
     if (seq === rolesRequestSeq && user.userId === rolesTargetUserId && rolesMounted) {
       roles.value = [];
@@ -459,12 +477,29 @@ async function openRolesDialog(user: SysUser) {
   }
 }
 
+async function saveUserRoles() {
+  if (!rolesUser.value || roleSaving.value || !rolesReady.value || !optionsReady.value) return;
+  const id = rolesUser.value.userId;
+  roleSaving.value = true;
+  try {
+    await assignUserRoles(id, [...roles.value]);
+    message.success('角色已更新');
+    rolesDialogVisible.value = false;
+    fetchUsers('user');
+  } catch { /* Keep selections on failure. */ }
+  finally { roleSaving.value = false; }
+}
+
 /* ========================= 生命周期 ========================= */
 
 onMounted(() => {
   fetchUsers("user");
-  listOrganizations().then(rows => {
-    if (mounted.value) organizations.value = rows;
+  getUserManagementOptions().then(options => {
+    if (mounted.value) {
+      organizations.value = options.organizations;
+      availableRoles.value = options.roles;
+      optionsReady.value = true;
+    }
   }).catch(() => undefined);
 });
 </script>
@@ -541,7 +576,7 @@ onMounted(() => {
               编辑
             </el-button>
             <el-button
-              v-auth="'system:user:update'"
+              v-auth="'system:user:status'"
               link
               :type="scope.row.status === UserStatus.ENABLED ? 'warning' : 'success'"
               :disabled="operatingIds.has(scope.row.userId)"
@@ -565,7 +600,7 @@ onMounted(() => {
               type="primary"
               @click="openRolesDialog(scope.row)"
             >
-              已分配角色
+              {{ canAssignRoles ? "分配角色" : "已分配角色" }}
             </el-button>
             <el-button
               v-auth="'system:user:delete'"
@@ -635,6 +670,11 @@ onMounted(() => {
             <el-option :value="0" label="未知" />
             <el-option :value="1" label="男" />
             <el-option :value="2" label="女" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="dialogMode === 'create' && canAssignRoles" label="角色" prop="roleIds">
+          <el-select v-model="form.roleIds" multiple filterable :disabled="!optionsReady" style="width:100%" placeholder="选择角色">
+            <el-option v-for="role in availableRoles" :key="role.roleId" :label="role.roleName" :value="role.roleId" />
           </el-select>
         </el-form-item>
         <el-form-item label="所属组织" prop="organizationId">
@@ -728,8 +768,11 @@ onMounted(() => {
     </el-dialog>
 
     <!-- 已分配角色对话框 -->
-    <el-dialog v-model="rolesDialogVisible" title="已分配角色" width="420px" destroy-on-close>
+    <el-dialog v-model="rolesDialogVisible" :title="canAssignRoles ? '分配角色' : '已分配角色'" width="480px" destroy-on-close :close-on-click-modal="false" :close-on-press-escape="!roleSaving" :show-close="!roleSaving">
       <el-skeleton v-if="rolesLoading" :rows="3" animated />
+      <el-select v-else-if="canAssignRoles" v-model="roles" multiple filterable :disabled="!optionsReady || !rolesReady || roleSaving" style="width:100%" placeholder="选择角色，清空表示移除所有角色">
+        <el-option v-for="role in availableRoles" :key="role.roleId" :label="role.roleName" :value="role.roleId" />
+      </el-select>
       <el-empty v-else-if="roles.length === 0" description="暂无分配角色" />
       <el-tag
         v-for="roleId in roles"
@@ -738,10 +781,11 @@ onMounted(() => {
         style="margin: 4px"
         type="primary"
       >
-        角色 {{ roleId }}
+        {{ roleLabels.get(roleId) ?? `角色 ${roleId}` }}
       </el-tag>
       <template #footer>
-        <el-button @click="rolesDialogVisible = false">关闭</el-button>
+        <el-button :disabled="roleSaving" @click="rolesDialogVisible = false">关闭</el-button>
+        <el-button v-if="canAssignRoles" type="primary" :loading="roleSaving" :disabled="!optionsReady || !rolesReady" @click="saveUserRoles">保存角色</el-button>
       </template>
     </el-dialog>
   </div>

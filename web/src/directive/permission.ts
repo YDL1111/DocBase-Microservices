@@ -8,6 +8,7 @@
  * 管理员（admin=true）默认拥有全部权限。
  */
 import type { App, Directive } from "vue";
+import { watchEffect, type WatchStopHandle } from "vue";
 import { useUserStoreHook } from "@/store/modules/user";
 
 function checkAuth(el: HTMLElement, binding: { value: string | string[] }): void {
@@ -17,20 +18,26 @@ function checkAuth(el: HTMLElement, binding: { value: string | string[] }): void
   const user = useUserStoreHook();
   const has = user.hasPermission(value as string | string[]);
 
-  if (!has && el.parentNode) {
-    // 无权限：移除元素（也可改用 el.style.display = 'none'）
-    el.parentNode.removeChild(el);
-  }
+  // Keep the node so permissions gained after token refresh can restore it.
+  el.style.display = has ? "" : "none";
+  el.setAttribute("aria-hidden", has ? "false" : "true");
 }
 
 const authDirective: Directive = {
   mounted(el, binding) {
-    checkAuth(el, binding);
+    permissionWatches.set(el, watchEffect(() => checkAuth(el, binding)));
   },
   updated(el, binding) {
-    checkAuth(el, binding);
+    permissionWatches.get(el)?.();
+    permissionWatches.set(el, watchEffect(() => checkAuth(el, binding)));
+  },
+  unmounted(el) {
+    permissionWatches.get(el)?.();
+    permissionWatches.delete(el);
   }
 };
+
+const permissionWatches = new WeakMap<HTMLElement, WatchStopHandle>();
 
 export function setupPermissionDirective(app: App): void {
   app.directive("auth", authDirective);

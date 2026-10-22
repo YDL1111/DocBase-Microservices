@@ -59,7 +59,7 @@ class FlywayMigrationValidationTest {
         MigrateResult result = flyway(ds, "classpath:db/migration").migrate();
 
         assertTrue(result.success, "V1→V13 迁移应全部成功");
-        assertEquals(13, result.migrationsExecuted,
+        assertEquals(14, result.migrationsExecuted,
                 "应顺序执行 V1 到 V13 共 13 个迁移");
 
         JdbcTemplate jdbc = new JdbcTemplate(ds);

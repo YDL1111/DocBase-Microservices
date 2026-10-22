@@ -907,7 +907,8 @@ describe("P1-4: 无 ingest:task:view 权限时详情按钮不存在", () => {
     const detailBtns = wrapper.findAll("button").filter(b =>
       b.text().includes("详情")
     );
-    expect(detailBtns.length).toBe(0);
+    expect(detailBtns.length).toBeGreaterThan(0);
+    expect(detailBtns.every(button => button.attributes('aria-hidden') === 'true')).toBe(true);
 
     grantAll = true;
   });

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableField;
 
 import java.time.LocalDateTime;
 
@@ -20,6 +21,10 @@ public class SysRole {
     private Integer roleSort;
 
     private Integer dataScope;
+    @TableField(exist = false)
+    private java.util.List<Long> organizationIds;
+    public java.util.List<Long> getOrganizationIds() { return organizationIds; }
+    public void setOrganizationIds(java.util.List<Long> ids) { organizationIds = ids; }
 
     private Integer status;
 

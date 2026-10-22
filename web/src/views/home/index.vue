@@ -91,9 +91,9 @@ const entries: WorkspaceEntry[] = [
   }
 ];
 
-function collectRouterNames(nodes: MenuNode[], names = new Set<string>()) {
+function collectRouterNames(nodes: MenuNode[], names = new Map<string, string>()) {
   for (const node of nodes) {
-    if (node.isButton !== 1 && node.routerName) names.add(node.routerName);
+    if (node.isButton !== 1 && node.routerName) names.set(node.routerName, node.path);
     if (node.children?.length) collectRouterNames(node.children, names);
   }
   return names;
@@ -101,7 +101,8 @@ function collectRouterNames(nodes: MenuNode[], names = new Set<string>()) {
 
 const visibleEntries = computed(() => {
   const routerNames = collectRouterNames(permission.menus);
-  return entries.filter(entry => routerNames.has(entry.routerName));
+  return entries.filter(entry => routerNames.has(entry.routerName))
+    .map(entry => ({ ...entry, path: routerNames.get(entry.routerName)! }));
 });
 const businessEntries = computed(() =>
   visibleEntries.value.filter(entry => entry.area === "business")

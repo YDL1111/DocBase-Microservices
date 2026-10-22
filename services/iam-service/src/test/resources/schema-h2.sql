@@ -116,3 +116,4 @@ CREATE TABLE IF NOT EXISTS sys_menu_owner_mutex (
     lock_version INT     NOT NULL DEFAULT 0
 );
 MERGE INTO sys_menu_owner_mutex(id, lock_version) KEY(id) VALUES (1, 0);
+CREATE TABLE IF NOT EXISTS sys_role_organization(role_id BIGINT NOT NULL, organization_id BIGINT NOT NULL, PRIMARY KEY(role_id, organization_id));

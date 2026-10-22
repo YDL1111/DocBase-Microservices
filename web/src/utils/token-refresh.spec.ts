@@ -3,6 +3,13 @@ import axios from "axios";
 import { getAccessToken } from "./auth";
 import { __resetTokenRefreshForTests, refreshAccessTokenSingleFlight } from "./token-refresh";
 
+const { user, permission } = vi.hoisted(() => ({
+  user: { setUserInfo: vi.fn(), setPermissions: vi.fn() },
+  permission: { setPermissions: vi.fn(), setMenuTree: vi.fn(), registerRoutes: vi.fn(), buildRoutes: vi.fn(() => ['new-route']), generated: true }
+}));
+vi.mock('@/store/modules/user', () => ({ useUserStoreHook: () => user }));
+vi.mock('@/store/modules/permission', () => ({ usePermissionStoreHook: () => permission }));
+
 describe("shared token refresh", () => {
   beforeEach(() => {
     sessionStorage.clear();
@@ -30,5 +37,21 @@ describe("shared token refresh", () => {
     await expect(refreshAccessTokenSingleFlight()).rejects.toThrow("failed");
     expect(getAccessToken()).toBeNull();
     expect(location.hash).toBe("#/login");
+  });
+
+  it('refreshes personnel, permissions and routes using the new access token', async () => {
+    sessionStorage.setItem('docbase_refresh_token', 'old-refresh');
+    const info = { userId: 7, organizationId: 20, admin: false };
+    vi.spyOn(axios, 'post').mockResolvedValue({ data: { success: true, data: {
+      accessToken: 'access-2', refreshToken: 'refresh-2', userInfo: info, permissions: ['system:user:list']
+    } } } as any);
+    const tree = [{ menuId: 1, path: '/system/user' }];
+    const get = vi.spyOn(axios, 'get').mockResolvedValue({ data: { success: true, data: tree } } as any);
+    await refreshAccessTokenSingleFlight();
+    expect(user.setUserInfo).toHaveBeenCalledWith(info);
+    expect(user.setPermissions).toHaveBeenCalledWith(['system:user:list']);
+    expect(get.mock.calls[0][1]?.headers).toEqual({ Authorization: 'Bearer access-2' });
+    expect(permission.setMenuTree).toHaveBeenCalledWith(tree);
+    expect(permission.registerRoutes).toHaveBeenCalledWith(['new-route']);
   });
 });

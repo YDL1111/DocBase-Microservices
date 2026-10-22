@@ -23,6 +23,17 @@ public class UserController {
         this.userService = userService;
     }
 
+    @GetMapping("/options")
+    @PreAuthorize("hasAuthority('system:user:list') or hasAuthority('system:user:create') or hasAuthority('system:user:assign-role') or hasAuthority('admin:all')")
+    ApiResponse<UserService.UserOptions> options() { return ApiResponse.success(userService.options()); }
+
+    @PutMapping("/{userId}/roles")
+    @PreAuthorize("hasAuthority('system:user:assign-role') or hasAuthority('admin:all')")
+    ApiResponse<Void> replaceRoles(@PathVariable Long userId, @Valid @RequestBody AssignUserRolesRequest request) {
+        userService.replaceRoles(userId, request.roleIds());
+        return ApiResponse.success(null);
+    }
+
     @GetMapping
     @PreAuthorize("hasAuthority('system:user:list') or hasAuthority('admin:all')")
     ApiResponse<Page<SysUser>> list(@RequestParam(defaultValue = "1") long current,
@@ -76,7 +87,7 @@ public class UserController {
     }
 
     @PutMapping("/{userId}/status")
-    @PreAuthorize("hasAuthority('system:user:update') or hasAuthority('admin:all')")
+    @PreAuthorize("hasAuthority('system:user:status') or hasAuthority('admin:all')")
     ApiResponse<Void> changeStatus(@PathVariable Long userId, @Valid @RequestBody ChangeUserStatusRequest request) {
         userService.changeStatus(userId, request.status());
         return ApiResponse.success(null);

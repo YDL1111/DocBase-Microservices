@@ -92,3 +92,14 @@ export function getUserRoles(userId: number): Promise<number[]> {
   positiveSafeInteger(userId, "userId");
   return http.get<number[]>(`/api/system/users/${userId}/roles`);
 }
+
+export interface UserManagementOptions {
+  organizations: import('./types').SysOrganization[];
+  roles: import('./types').SysRole[];
+}
+export function getUserManagementOptions(): Promise<UserManagementOptions> {
+  return http.get<UserManagementOptions>('/api/system/users/options');
+}
+export function assignUserRoles(userId: number, roleIds: number[]): Promise<void> {
+  return http.put<void>(`/api/system/users/${userId}/roles`, { roleIds });
+}

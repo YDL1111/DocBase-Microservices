@@ -62,7 +62,7 @@ class RoleServiceTest {
         when(ownerMutexMapper.lockGuardRow()).thenReturn(1);
         roleService = new RoleService(roleMapper, roleMenuMapper, ownerRoleMapper,
                 ownerMutexMapper, mock(OwnerLifecycleLockHook.class),
-                userMapper, userRoleMapper, menuMapper, tokenStore);
+                userMapper, userRoleMapper, menuMapper, tokenStore, mock(com.docbase.iam.security.DirectoryScopePolicy.class));
     }
 
     @AfterEach
@@ -415,7 +415,7 @@ class RoleServiceTest {
         SysRole r = role(1, 1);
         when(roleMapper.selectById(1L)).thenReturn(r);
         when(roleMenuMapper.selectMenuIdsByRoleId(1L)).thenReturn(Set.of(100L));
-        when(menuMapper.selectPermissionsByMenuIds(Set.of(100L))).thenReturn(Set.of("system:menu:list"));
+        when(menuMapper.selectAllPermissionsByMenuIds(Set.of(100L))).thenReturn(Set.of("system:menu:list"));
 
         // 超级管理员：系统保留角色 + 任意权限都允许
         assertDoesNotThrow(() -> roleService.assertCanAssignRoles(
@@ -475,7 +475,7 @@ class RoleServiceTest {
         SysRole target = role(20, 0);
         when(roleMapper.selectById(20L)).thenReturn(target);
         when(roleMenuMapper.selectMenuIdsByRoleId(20L)).thenReturn(Set.of(200L));
-        when(menuMapper.selectPermissionsByMenuIds(Set.of(200L))).thenReturn(Set.of("system:user:delete"));
+        when(menuMapper.selectAllPermissionsByMenuIds(Set.of(200L))).thenReturn(Set.of("system:user:delete"));
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> roleService.assertCanAssignRoles(currentPrincipal(), List.of(20L)));
@@ -488,7 +488,7 @@ class RoleServiceTest {
         SysRole target = role(30, 0);
         when(roleMapper.selectById(30L)).thenReturn(target);
         when(roleMenuMapper.selectMenuIdsByRoleId(30L)).thenReturn(Set.of(300L));
-        when(menuMapper.selectPermissionsByMenuIds(Set.of(300L))).thenReturn(Set.of("admin:all"));
+        when(menuMapper.selectAllPermissionsByMenuIds(Set.of(300L))).thenReturn(Set.of("admin:all"));
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> roleService.assertCanAssignRoles(currentPrincipal(), List.of(30L)));
@@ -503,7 +503,7 @@ class RoleServiceTest {
         SysRole target = role(40, 0);
         when(roleMapper.selectById(40L)).thenReturn(target);
         when(roleMenuMapper.selectMenuIdsByRoleId(40L)).thenReturn(Set.of(400L));
-        when(menuMapper.selectPermissionsByMenuIds(Set.of(400L))).thenReturn(Set.of("system:role:edit"));
+        when(menuMapper.selectAllPermissionsByMenuIds(Set.of(400L))).thenReturn(Set.of("system:role:edit"));
 
         assertDoesNotThrow(() -> roleService.assertCanAssignRoles(currentPrincipal(), List.of(40L)));
     }

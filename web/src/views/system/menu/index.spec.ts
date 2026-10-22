@@ -580,10 +580,10 @@ describe("system menu manage page", () => {
 
     // 页面根需要 list 权限 → 可见；create/update/delete 均无 → 按钮全部移除
     expect(wrapper.find(".menu-manage").exists()).toBe(true);
-    expect(wrapper.findAll("button").some(b => b.text().includes("新建菜单"))).toBe(false);
-    expect(wrapper.findAll("button").some(b => b.text().includes("编辑"))).toBe(false);
-    expect(wrapper.findAll("button").some(b => b.text().includes("停用"))).toBe(false);
-    expect(wrapper.findAll("button").some(b => b.text().includes("删除"))).toBe(false);
+    expect(wrapper.findAll('[aria-hidden="true"]').some(b => b.text().includes("新建菜单"))).toBe(true);
+    expect(wrapper.findAll('[aria-hidden="true"]').some(b => b.text().includes("编辑"))).toBe(true);
+    expect(wrapper.findAll('[aria-hidden="true"]').some(b => b.text().includes("停用"))).toBe(true);
+    expect(wrapper.findAll('[aria-hidden="true"]').some(b => b.text().includes("删除"))).toBe(true);
     // 详情按钮不依赖额外权限（list 已覆盖）
     expect(wrapper.findAll("button").some(b => b.text().includes("详情"))).toBe(true);
   });

@@ -591,6 +591,7 @@ export interface SysRole {
   roleSort: number;
   /** 数据范围：1全部 2自定义 3本部门 4本部门及以下 5本人 */
   dataScope: number;
+  organizationIds?: number[];
   /** 1启用 0停用 */
   status: number;
   /** 1=系统保留角色（仅超级管理员可修改/停用/删除/分配） */
@@ -613,6 +614,7 @@ export interface CreateRoleRequest {
   roleKey: string;
   roleSort?: number;
   dataScope?: number;
+  organizationIds?: number[];
   status?: number;
   remark?: string;
   menuIds?: number[] | null;
@@ -628,6 +630,7 @@ export interface UpdateRoleRequest {
   roleKey: string;
   roleSort?: number;
   dataScope?: number;
+  organizationIds?: number[];
   remark?: string;
   /** null = 不修改菜单；[] = 清空菜单 */
   menuIds?: number[] | null;

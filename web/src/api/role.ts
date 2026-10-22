@@ -95,6 +95,7 @@ export function createRole(data: CreateRoleRequest): Promise<number> {
     roleKey: data.roleKey,
     roleSort: data.roleSort,
     dataScope: data.dataScope,
+    ...(data.organizationIds !== undefined ? { organizationIds: data.organizationIds } : {}),
     status: data.status,
     remark: data.remark,
     menuIds: sanitizeMenuIds(data.menuIds)
@@ -110,6 +111,7 @@ export function updateRole(roleId: number, data: UpdateRoleRequest): Promise<voi
     roleKey: data.roleKey,
     roleSort: data.roleSort,
     dataScope: data.dataScope,
+    ...(data.organizationIds !== undefined ? { organizationIds: data.organizationIds } : {}),
     remark: data.remark,
     menuIds: sanitizeMenuIds(data.menuIds)
   };

@@ -21,6 +21,28 @@ async function refreshAccessToken(): Promise<string> {
       throw new Error("refresh failed");
     }
     setTokens(payload.accessToken, payload.refreshToken);
+    if (payload.userInfo && Array.isArray(payload.permissions)) {
+      const [{ useUserStoreHook }, { usePermissionStoreHook }] = await Promise.all([
+        import("@/store/modules/user"), import("@/store/modules/permission")
+      ]);
+      const user = useUserStoreHook();
+      const permission = usePermissionStoreHook();
+      user.setUserInfo(payload.userInfo);
+      user.setPermissions(payload.permissions);
+      permission.setPermissions(payload.permissions);
+      try {
+        const menus = await axios.get(`${baseURL}/api/auth/menus`, {
+          headers: { Authorization: `Bearer ${payload.accessToken}` }
+        });
+        if (!menus.data?.success || !Array.isArray(menus.data.data)) throw new Error("menu refresh failed");
+        permission.setMenuTree(menus.data.data);
+        permission.registerRoutes(permission.buildRoutes(menus.data.data));
+      } catch {
+        permission.setMenuTree([]);
+        permission.registerRoutes([]);
+        permission.generated = false;
+      }
+    }
     return payload.accessToken;
   } catch (error) {
     removeToken();

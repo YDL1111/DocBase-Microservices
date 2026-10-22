@@ -10,6 +10,8 @@ const {
   changeUserStatus,
   resetPassword,
   getUserRoles,
+  userOptions,
+  assignUserRoles,
   confirmMock,
   messages,
   hasPermission
@@ -21,6 +23,8 @@ const {
   changeUserStatus: vi.fn(),
   resetPassword: vi.fn(),
   getUserRoles: vi.fn(),
+  userOptions: vi.fn().mockResolvedValue({ organizations: [], roles: [] }),
+  assignUserRoles: vi.fn().mockResolvedValue(undefined),
   confirmMock: vi.fn(),
   messages: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
   hasPermission: vi.fn()
@@ -33,9 +37,12 @@ vi.mock("@/api/system-user", () => ({
   deleteUser: (...args: unknown[]) => deleteUser(...args),
   changeUserStatus: (...args: unknown[]) => changeUserStatus(...args),
   resetPassword: (...args: unknown[]) => resetPassword(...args),
+  getUserManagementOptions: (...args: unknown[]) => userOptions(...args),
+  assignUserRoles: (...args: unknown[]) => assignUserRoles(...args),
   getUserRoles: (...args: unknown[]) => getUserRoles(...args)
 }));
 vi.mock("@/utils/message", () => ({ message: messages }));
+vi.mock('@/store/modules/user', () => ({ useUserStoreHook: () => ({ hasPermission, admin: false }) }));
 
 // 保留真实 ElementPlus 组件，仅替换 ElMessageBox/ElMessage（避免真实弹窗）
 vi.mock("element-plus", async (importOriginal) => {
@@ -100,13 +107,14 @@ const ElTableColumn = { name: "ElTableColumn", template: "<div />" };
 
 /** 挂载用户管理页：真实 ElementPlus + el-table stub */
 function mountList(options: Record<string, unknown> = {}) {
+  const { global: suppliedGlobal, ...rest } = options;
   return mount(UserList, {
+    ...rest,
     global: {
       plugins: [ElementPlus],
-      stubs: { ElTable, ElTableColumn, ...((options.global as any)?.stubs ?? {}) },
-      ...(options.global as any)
-    },
-    ...options
+      ...(suppliedGlobal as any),
+      stubs: { ElTable, ElTableColumn, ...((suppliedGlobal as any)?.stubs ?? {}) }
+    }
   });
 }
 
@@ -157,7 +165,26 @@ describe("system user manage page", () => {
     const wrapper = mountList({ global: { directives: { auth: authDirective } } });
     await flush();
     // 新建按钮（需要 create 权限）应被 v-auth 从 DOM 移除
-    expect(wrapper.text()).not.toContain("新建用户");
+    expect(wrapper.findAll('[aria-hidden="true"]').some(b => b.text().includes("新建用户"))).toBe(true);
+  });
+
+  it('独立角色对话框回显并通过专用接口保存角色，不覆盖人员资料', async () => {
+    userOptions.mockResolvedValueOnce({ organizations: [], roles: [{ roleId: 7, roleName: '阅读者' }, { roleId: 8, roleName: '编辑者' }] });
+    getUserRoles.mockResolvedValueOnce([7]);
+    const wrapper = mountList();
+    await flush();
+    const button = wrapper.findAll('button').find(b => b.text() === '分配角色');
+    await button!.trigger('click');
+    await flush();
+    const select = wrapper.findAllComponents({ name: 'ElSelect' }).find(s => s.props('multiple'));
+    expect(select!.props('modelValue')).toEqual([7]);
+    select!.vm.$emit('update:modelValue', [8]);
+    await nextTick();
+    await wrapper.findAll('button').find(b => b.text() === '保存角色')!.trigger('click');
+    await flush();
+    expect(assignUserRoles).toHaveBeenCalledWith(1, [8]);
+    expect(updateUser).not.toHaveBeenCalled();
+    wrapper.unmount();
   });
 
   it("确认取消：confirm reject 时不应调用 deleteUser", async () => {

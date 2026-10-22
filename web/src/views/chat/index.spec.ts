@@ -459,6 +459,7 @@ describe("chat history page", () => {
     parent.appendChild(restricted);
     (authDirective as any).mounted(restricted, { value: "ai:chat:list" }, {}, null);
     expect(hasPermission).toHaveBeenCalledWith("ai:chat:list");
-    expect(parent.contains(restricted)).toBe(false);
+    expect(parent.contains(restricted)).toBe(true);
+    expect(restricted.style.display).toBe('none');
   });
 });

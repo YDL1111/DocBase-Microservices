@@ -120,6 +120,15 @@ describe("首页工作台权限入口", () => {
     expect(wrapper.text()).not.toContain("用户管理");
   });
 
+  it("系统入口使用 IAM 真实路径而不是固定复数路径", () => {
+    permissionState.menus = [menu("SystemManage", "/system", [
+      menu("SystemUser", "/system/user"), menu("SystemRole", "/system/role"), menu("SystemMenu", "/system/menu")
+    ])];
+    const wrapper = mountHome();
+    expect(wrapper.findAll(".entry-card").map(link => link.attributes("href")))
+      .toEqual(["/system/user", "/system/role", "/system/menu"]);
+  });
+
   it("没有页面菜单时显示明确空状态", () => {
     permissionState.menus = [menu("OnlyAction", "", [], 1)];
 

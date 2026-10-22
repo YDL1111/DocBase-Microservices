@@ -7,6 +7,7 @@ import com.docbase.iam.auth.AuthService;
 import com.docbase.iam.organization.OrganizationService;
 import com.docbase.iam.role.RoleService;
 import com.docbase.iam.security.IamUserPrincipal;
+import com.docbase.iam.security.DirectoryScopePolicy;
 import com.docbase.iam.security.TokenStore;
 import com.docbase.iam.user.domain.SysUser;
 import com.docbase.iam.user.domain.SysUserRole;
@@ -32,6 +33,7 @@ public class UserService {
     private final AuthService authService;
     private final TokenStore tokenStore;
     private final TransactionTemplate transactionTemplate;
+    private final DirectoryScopePolicy directoryScope;
     private final OrganizationService organizationService;
 
     /**
@@ -64,7 +66,8 @@ public class UserService {
                        TokenStore tokenStore, AdminMutexMapper adminMutexMapper,
                        RoleService roleService,
                        OrganizationService organizationService,
-                       PlatformTransactionManager transactionManager) {
+                       PlatformTransactionManager transactionManager, DirectoryScopePolicy directoryScope) {
+        this.directoryScope = directoryScope;
         this.userMapper = userMapper;
         this.userRoleMapper = userRoleMapper;
         this.passwordEncoder = passwordEncoder;
@@ -81,6 +84,7 @@ public class UserService {
     public SysUser getById(Long userId) {
         SysUser user = userMapper.selectById(userId);
         if (user != null) {
+            directoryScope.assertTarget(currentPrincipal(), user, "system:user:list");
             user.setPassword(null);
         }
         return user;
@@ -89,6 +93,7 @@ public class UserService {
     public Page<SysUser> page(long current, long size, String username) {
         Page<SysUser> page = new Page<>(current, size);
         QueryWrapper<SysUser> wrapper = new QueryWrapper<>();
+        directoryScope.restrict(wrapper, currentPrincipal(), "system:user:list");
         if (username != null && !username.isBlank()) {
             wrapper.like("username", username);
         }
@@ -100,6 +105,9 @@ public class UserService {
 
     @Transactional
     public Long create(SysUser user, List<Long> roleIds) {
+        IamUserPrincipal caller = currentPrincipal();
+        directoryScope.assertTarget(caller, user, "system:user:create");
+        assertRolePermission(caller, roleIds);
         if (userMapper.selectCount(new QueryWrapper<SysUser>().eq("username", user.getUsername())) > 0) {
             throw new BusinessException("USERNAME_EXISTS", "username already exists");
         }
@@ -120,9 +128,19 @@ public class UserService {
             throw new BusinessException("USER_NOT_FOUND", "user not found");
         }
         assertCanOperate(caller, existing);
+        directoryScope.assertTarget(caller, existing, "system:user:update");
+        SysUser destination = new SysUser();
+        destination.setUserId(existing.getUserId());
+        destination.setOrganizationId(user.getOrganizationId());
+        directoryScope.assertTarget(caller, destination, "system:user:update");
+        assertRolePermission(caller, roleIds);
         organizationService.assertActive(user.getOrganizationId());
         boolean organizationChanged = !java.util.Objects.equals(
                 existing.getOrganizationId(), user.getOrganizationId());
+        if (organizationChanged) {
+            directoryScope.assertOrganizationChange(caller, user.getOrganizationId());
+            directoryScope.assertRelocation(caller, existing, user.getOrganizationId());
+        }
         existing.setOrganizationId(user.getOrganizationId());
         existing.setNickname(user.getNickname());
         existing.setEmail(user.getEmail());
@@ -139,6 +157,7 @@ public class UserService {
             tokenStore.evictPermissions(user.getUserId());
             tokenStore.bumpAuthVersion(user.getUserId());
         }
+
     }
 
     public void delete(Long userId) {
@@ -154,6 +173,7 @@ public class UserService {
                 throw new BusinessException("USER_NOT_FOUND", "user not found");
             }
             assertCanOperate(caller, existing);
+            directoryScope.assertTarget(caller, existing, "system:user:delete");
             assertNotSelf(caller, existing);
             assertNotLastAdmin(existing);
             userMapper.deleteById(userId);
@@ -181,6 +201,7 @@ public class UserService {
                 return null;
             });
         }
+
     }
 
     private void changeStatusInternal(Long userId, Integer status) {
@@ -190,6 +211,7 @@ public class UserService {
             throw new BusinessException("USER_NOT_FOUND", "user not found");
         }
         assertCanOperate(caller, user);
+        directoryScope.assertTarget(caller, user, "system:user:status");
         if (status != null && status == 0) {
             // 停用操作：禁止停用自己，且保护最后一个超级管理员
             assertNotSelf(caller, user);
@@ -201,6 +223,7 @@ public class UserService {
         if (status != null && status == 0) {
             authService.invalidateSessions(userId);
         }
+
     }
 
     /**
@@ -218,6 +241,7 @@ public class UserService {
             throw new BusinessException("MIGRATION_MISSING",
                     "sys_admin_mutex guard row missing — run Flyway migration V3");
         }
+
     }
 
     @Transactional
@@ -228,6 +252,7 @@ public class UserService {
             throw new BusinessException("USER_NOT_FOUND", "user not found");
         }
         assertCanOperate(caller, user);
+        directoryScope.assertTarget(caller, user, "system:user:reset-password");
         user.setPassword(passwordEncoder.encode(newPassword));
         userMapper.updateById(user);
         // Password change invalidates all prior sessions immediately
@@ -244,6 +269,9 @@ public class UserService {
         // 目标角色的有效权限是调用者权限的子集（防纵向提权）。
         IamUserPrincipal caller = currentPrincipal();
         roleService.assertCanAssignRoles(caller, deduped);
+        SysUser target = userMapper.selectById(userId);
+        if (target != null) directoryScope.assertTarget(caller, target, "system:user:assign-role");
+        roleService.assertRoleScopes(caller, deduped, target == null ? null : target.getOrganizationId());
         for (Long roleId : deduped) {
             userRoleMapper.insert(new SysUserRole(userId, roleId));
         }
@@ -253,6 +281,7 @@ public class UserService {
     }
 
     public List<Long> getRoleIds(Long userId) {
+        getById(userId);
         return userRoleMapper.selectList(new QueryWrapper<SysUserRole>().eq("user_id", userId))
                 .stream().map(SysUserRole::getRoleId).toList();
     }
@@ -286,11 +315,42 @@ public class UserService {
      * "重置超级管理员密码 → 登录 → 取得 admin:all" 的提权链路。
      */
     private void assertCanOperate(IamUserPrincipal caller, SysUser target) {
+        directoryScope.assertPrivilegeBoundary(caller, target);
         if (caller.admin()) return; // 超级管理员不受资源级限制
         if (isAdmin(target)) {
             throw new BusinessException("OPERATION_FORBIDDEN",
                     "only super-admin can operate on an admin user");
         }
+
+    }
+
+    private void assertRolePermission(IamUserPrincipal caller, List<Long> roleIds) {
+        if (roleIds != null && !caller.hasPermission("system:user:assign-role")) {
+            throw new BusinessException("OPERATION_FORBIDDEN", "role assignment permission required");
+        }
+
+    }
+
+    public record UserOptions(List<com.docbase.iam.organization.domain.SysOrganization> organizations,
+                              List<com.docbase.iam.role.domain.SysRole> roles) {}
+
+    public UserOptions options() {
+        IamUserPrincipal caller = currentPrincipal();
+        List<com.docbase.iam.role.domain.SysRole> roles = caller.hasPermission("system:user:assign-role")
+                ? roleService.assignableRoles(caller) : List.of();
+        return new UserOptions(directoryScope.organizationOptions(caller), roles);
+    }
+
+    @Transactional
+    public void replaceRoles(Long userId, List<Long> roleIds) {
+        IamUserPrincipal caller = currentPrincipal();
+        assertRolePermission(caller, roleIds);
+        SysUser target = userMapper.selectById(userId);
+        if (target == null) throw new BusinessException("USER_NOT_FOUND", "user not found");
+        assertCanOperate(caller, target);
+        directoryScope.assertTarget(caller, target, "system:user:assign-role");
+        userRoleMapper.delete(new QueryWrapper<SysUserRole>().eq("user_id", userId));
+        assignRoles(userId, roleIds);
     }
 
     /** 禁止删除或停用自己 */
@@ -298,6 +358,7 @@ public class UserService {
         if (caller.userId().equals(target.getUserId())) {
             throw new BusinessException("OPERATION_FORBIDDEN", "cannot operate on yourself");
         }
+
     }
 
     /**

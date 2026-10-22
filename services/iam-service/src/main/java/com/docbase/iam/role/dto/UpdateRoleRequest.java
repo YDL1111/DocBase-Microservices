@@ -43,5 +43,9 @@ public record UpdateRoleRequest(
         /** Null = leave menus unchanged; non-null = full replace. */
         @Size(max = 500, message = "menuIds must not exceed 500 entries")
         List<@NotNull(message = "menuIds must not contain null elements")
-             @Positive(message = "menuIds must contain only positive IDs") Long> menuIds) {
+             @Positive(message = "menuIds must contain only positive IDs") Long> menuIds,
+        @Size(max = 100) List<@NotNull @Positive Long> organizationIds) {
+    public UpdateRoleRequest(String name, String key, Integer sort, Integer scope, String remark, List<Long> menus) {
+        this(name, key, sort, scope, remark, menus, null);
+    }
 }

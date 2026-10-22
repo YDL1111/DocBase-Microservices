@@ -17,8 +17,10 @@ import com.docbase.iam.role.dto.UpdateRoleRequest;
 import com.docbase.iam.role.mapper.SysRoleMapper;
 import com.docbase.iam.role.mapper.SysRoleMenuMapper;
 import com.docbase.iam.security.IamUserPrincipal;
+import com.docbase.iam.security.DirectoryScopePolicy;
 import com.docbase.iam.security.TokenStore;
 import com.docbase.iam.user.domain.SysUserRole;
+import com.docbase.iam.user.domain.SysUser;
 import com.docbase.iam.user.mapper.SysUserMapper;
 import com.docbase.iam.user.mapper.SysUserRoleMapper;
 import org.springframework.dao.DuplicateKeyException;
@@ -48,13 +50,15 @@ public class RoleService {
     private final SysUserRoleMapper userRoleMapper;
     private final SysMenuMapper menuMapper;
     private final TokenStore tokenStore;
+    private final DirectoryScopePolicy directoryScope;
 
     public RoleService(SysRoleMapper roleMapper, SysRoleMenuMapper roleMenuMapper,
                        SysMenuOwnerRoleMapper ownerRoleMapper,
                        MenuOwnerMutexMapper ownerMutexMapper,
                        OwnerLifecycleLockHook ownerLockHook,
                        SysUserMapper userMapper, SysUserRoleMapper userRoleMapper,
-                       SysMenuMapper menuMapper, TokenStore tokenStore) {
+                       SysMenuMapper menuMapper, TokenStore tokenStore, DirectoryScopePolicy directoryScope) {
+        this.directoryScope = directoryScope;
         this.roleMapper = roleMapper;
         this.roleMenuMapper = roleMenuMapper;
         this.ownerRoleMapper = ownerRoleMapper;
@@ -69,7 +73,9 @@ public class RoleService {
     /* ========================= 只读查询（无需调用者校验） ========================= */
 
     public SysRole getById(Long roleId) {
-        return roleMapper.selectById(roleId);
+        SysRole role = roleMapper.selectById(roleId);
+        if (role != null) role.setOrganizationIds(directoryScope.customOrganizations(roleId));
+        return role;
     }
 
     public Page<SysRole> page(long current, long size, String roleName) {
@@ -112,12 +118,13 @@ public class RoleService {
         // 先校验菜单（含权限子集），再插入角色，保证失败时无副作用（全或无）。
         List<Long> deduped = dedupMenuIds(request.menuIds());
         validateMenus(caller, deduped);
+        directoryScope.configureScope(caller, null, request.dataScope(), request.organizationIds());
 
         SysRole role = new SysRole();
         role.setRoleName(request.roleName());
         role.setRoleKey(request.roleKey());
         role.setRoleSort(request.roleSort());
-        role.setDataScope(request.dataScope());
+        role.setDataScope(request.dataScope() == null ? 5 : request.dataScope());
         role.setStatus(request.status() != null ? request.status() : 1);
         role.setIsSystem(0); // 接口创建的角色一律不是系统保留角色
         role.setRemark(request.remark());
@@ -129,6 +136,7 @@ public class RoleService {
         }
 
         insertRoleMenus(role.getRoleId(), deduped);
+        directoryScope.saveScope(role.getRoleId(), role.getDataScope(), request.organizationIds());
         return role.getRoleId();
     }
 
@@ -140,6 +148,8 @@ public class RoleService {
             throw new BusinessException("ROLE_NOT_FOUND", "role not found");
         }
         assertCanMutate(caller, existing);
+        Integer requestedScope = request.dataScope() == null ? existing.getDataScope() : request.dataScope();
+        directoryScope.configureScope(caller, existing, requestedScope, request.organizationIds());
 
         if (!Objects.equals(existing.getRoleKey(), request.roleKey())
                 && roleMapper.selectCount(
@@ -150,13 +160,15 @@ public class RoleService {
         // 先校验菜单，再修改角色，保证全或无。
         List<Long> deduped = dedupMenuIds(request.menuIds());
         if (request.menuIds() != null) {
-            validateMenus(caller, deduped);
+            validateMenus(caller, deduped, roleId);
+            assertMenuScope(caller, existing, deduped);
         }
 
         existing.setRoleName(request.roleName());
         existing.setRoleKey(request.roleKey());
         existing.setRoleSort(request.roleSort());
-        existing.setDataScope(request.dataScope());
+        boolean scopeChanged = !Objects.equals(existing.getDataScope(), requestedScope) || request.organizationIds() != null;
+        existing.setDataScope(requestedScope);
         existing.setRemark(request.remark());
         try {
             roleMapper.updateById(existing);
@@ -164,10 +176,9 @@ public class RoleService {
             throw new BusinessException("ROLE_KEY_EXISTS", "role key already exists");
         }
 
-        if (request.menuIds() != null) {
-            replaceRoleMenus(roleId, deduped);
-            invalidateRoleUsers(roleId);
-        }
+        directoryScope.saveScope(roleId, requestedScope, request.organizationIds());
+        if (request.menuIds() != null) replaceRoleMenus(roleId, deduped);
+        if (request.menuIds() != null || scopeChanged) invalidateRoleUsers(roleId);
     }
 
     @Transactional
@@ -202,6 +213,7 @@ public class RoleService {
                 .eq("role_id", roleId));
         userRoleMapper.delete(new QueryWrapper<SysUserRole>().eq("role_id", roleId));
         roleMapper.deleteById(roleId);
+        directoryScope.saveScope(roleId, 5, null);
 
         invalidateUsers(affectedUserIds);
     }
@@ -243,7 +255,8 @@ public class RoleService {
         assertCanMutate(caller, existing);
 
         List<Long> deduped = dedupMenuIds(request.menuIds());
-        validateMenus(caller, deduped);
+        validateMenus(caller, deduped, roleId);
+        assertMenuScope(caller, existing, deduped);
 
         replaceRoleMenus(roleId, deduped);
         invalidateRoleUsers(roleId);
@@ -256,11 +269,21 @@ public class RoleService {
      * 任一不满足则抛出，由事务回滚保证不会出现半更新。
      */
     private void validateMenus(IamUserPrincipal caller, List<Long> menuIds) {
+        validateMenus(caller, menuIds, null);
+    }
+
+    private void validateMenus(IamUserPrincipal caller, List<Long> menuIds, Long existingRoleId) {
         if (menuIds.isEmpty()) return;
         int valid = menuMapper.countValidMenus(menuIds);
         if (valid != menuIds.size()) {
-            throw new BusinessException("MENU_INVALID",
-                    "menuIds contain non-existent, deleted or disabled menu");
+            Set<Long> retained = existingRoleId == null ? Set.of() : new java.util.HashSet<>(getMenuIds(existingRoleId));
+            for (Long id : menuIds) {
+                var menu = menuMapper.selectById(id);
+                if (menu == null || Objects.equals(menu.getDeleted(), 1)
+                        || !Objects.equals(menu.getStatus(), 1) && !retained.contains(id)) {
+                    throw new BusinessException("MENU_INVALID", "cannot add a deleted or disabled menu");
+                }
+            }
         }
         assertGrantable(caller, menuIds);
     }
@@ -290,6 +313,13 @@ public class RoleService {
         if (target.getIsSystem() != null && target.getIsSystem() == 1) {
             throw new BusinessException("ROLE_NOT_FOUND", "role not found");
         }
+        // Protect privileged ordinary roles as well as reserved roles.
+        Set<Long> ids = menuMapper.selectMenuIdsByRoleId(target.getRoleId());
+        Set<String> permissions = ids.isEmpty() ? Set.of() : menuMapper.selectAllPermissionsByMenuIds(ids);
+        if (!caller.permissions().containsAll(PermissionMapping.normalize(permissions))) {
+            throw new BusinessException("OPERATION_FORBIDDEN", "cannot manage a higher-privilege role");
+        }
+        assertMenuScope(caller, target, new java.util.ArrayList<>(ids));
     }
 
     /**
@@ -394,7 +424,7 @@ public class RoleService {
                 .flatMap(roleId -> roleMenuMapper.selectMenuIdsByRoleId(roleId).stream())
                 .collect(Collectors.toSet());
         if (menuIds.isEmpty()) return;
-        Set<String> rolePerms = menuMapper.selectPermissionsByMenuIds(menuIds);
+        Set<String> rolePerms = menuMapper.selectAllPermissionsByMenuIds(menuIds);
         Set<String> normalized = PermissionMapping.normalize(rolePerms);
         for (String perm : normalized) {
             if (IamUserPrincipal.ADMIN_ALL_PERMISSION.equals(perm)) {
@@ -405,6 +435,40 @@ public class RoleService {
                 throw new BusinessException("PERMISSION_NOT_SUBSET",
                         "cannot assign a role with a permission the caller does not have: " + perm);
             }
+        }
+    }
+
+    public List<SysRole> assignableRoles(IamUserPrincipal caller) {
+        return listAll().stream().filter(role -> {
+            try {
+                assertCanAssignRoles(caller, List.of(role.getRoleId()));
+                assertRoleScopes(caller, List.of(role.getRoleId()), null);
+                return true;
+            }
+            catch (BusinessException e) { return false; }
+        }).toList();
+    }
+
+    public void assertRoleScopes(IamUserPrincipal caller, List<Long> roleIds, Long organizationId) {
+        if (caller.admin()) return;
+        for (Long id : roleIds) {
+            SysRole role = roleMapper.selectById(id);
+            Set<Long> menus = menuMapper.selectMenuIdsByRoleId(id);
+            directoryScope.assertRoleGrant(caller, role, organizationId,
+                    menus.isEmpty() ? Set.of() : menuMapper.selectAllPermissionsByMenuIds(menus));
+        }
+    }
+
+    private void assertMenuScope(IamUserPrincipal caller, SysRole role, List<Long> menuIds) {
+        if (caller.admin() || menuIds.isEmpty()) return;
+        Set<String> permissions = menuMapper.selectAllPermissionsByMenuIds(menuIds);
+        directoryScope.assertRoleGrant(caller, role, null, permissions);
+        for (var link : userRoleMapper.selectList(new QueryWrapper<SysUserRole>().eq("role_id", role.getRoleId()))) {
+            SysUser recipient = userMapper.selectById(link.getUserId());
+            if (recipient == null) continue;
+            directoryScope.assertRoleGrant(caller, role, recipient.getOrganizationId(), permissions);
+            for (String permission : PermissionMapping.normalize(permissions)) if (permission.startsWith("system:user:"))
+                directoryScope.assertTarget(caller, recipient, permission);
         }
     }
 

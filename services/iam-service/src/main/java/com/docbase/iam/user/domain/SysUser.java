@@ -13,6 +13,7 @@ public class SysUser {
     @TableId(type = IdType.AUTO)
     private Long userId;
 
+    @com.baomidou.mybatisplus.annotation.TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.ALWAYS)
     private Long organizationId;
 
     private String username;

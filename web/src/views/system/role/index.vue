@@ -34,6 +34,17 @@ import {
   MAX_ROLE_MENUS
 } from "@/api/role";
 import { message } from "@/utils/message";
+import { listOrganizations } from '@/api/organization';
+import { useUserStoreHook } from '@/store/modules/user';
+const roleEditorUser = useUserStoreHook();
+const scopeOrganizations = ref<import('@/api/types').SysOrganization[]>([]);
+const customScopeReady = ref(false);
+let scopeRequestSeq = 0;
+onMounted(() => {
+  if (roleEditorUser.admin) listOrganizations().then(rows => {
+    if (mountedRef.value) { scopeOrganizations.value = rows; customScopeReady.value = true; }
+  }).catch(() => undefined);
+});
 import {
   type SysRole,
   type CreateRoleRequest,
@@ -103,7 +114,8 @@ const form = reactive<CreateRoleRequest>({
   roleName: "",
   roleKey: "",
   roleSort: 0,
-  dataScope: DataScope.ALL,
+  dataScope: roleEditorUser.admin ? DataScope.ALL : DataScope.SELF,
+  organizationIds: [],
   status: RoleStatus.ENABLED,
   remark: ""
 });
@@ -130,6 +142,7 @@ const detailRole = ref<SysRole | null>(null);
 const menuDialogVisible = ref(false);
 const menuTargetRole = ref<SysRole | null>(null);
 const menuTree = ref<MenuNode[]>([]);
+const retainedMenuIds = ref<number[]>([]);
 const menuLoading = ref(false);
 const menuSubmitting = ref(false);
 const treeRef = ref<any>();
@@ -257,10 +270,12 @@ function handleSizeChange(size: number) {
 /* ========================= 新建/编辑 ========================= */
 
 function resetForm() {
+  scopeRequestSeq++;
   form.roleName = "";
   form.roleKey = "";
   form.roleSort = 0;
-  form.dataScope = DataScope.ALL;
+  form.dataScope = roleEditorUser.admin ? DataScope.ALL : DataScope.SELF;
+  form.organizationIds = [];
   form.status = RoleStatus.ENABLED;
   form.remark = "";
 }
@@ -280,6 +295,18 @@ function openEditDialog(role: SysRole) {
   form.roleKey = role.roleKey;
   form.roleSort = role.roleSort;
   form.dataScope = role.dataScope;
+  form.organizationIds = [];
+  if (role.dataScope === DataScope.CUSTOM) {
+    const sequence = ++scopeRequestSeq;
+    customScopeReady.value = false;
+    getRole(role.roleId).then(detail => {
+      if (mountedRef.value && sequence === scopeRequestSeq && formDialogVisible.value
+          && editingRole.value?.roleId === role.roleId && form.dataScope === DataScope.CUSTOM) {
+        form.organizationIds = detail.organizationIds ?? [];
+        customScopeReady.value = true;
+      }
+    }).catch(() => undefined);
+  }
   form.remark = role.remark;
   formDialogVisible.value = true;
 }
@@ -291,6 +318,9 @@ async function handleSubmit() {
   try {
     const valid = await formRef.value.validate().catch(() => false);
     if (!valid) return; // finally 释放锁
+    if (form.dataScope === DataScope.CUSTOM && (!customScopeReady.value || !form.organizationIds?.length)) {
+      message.error('请选择自定义组织范围'); return;
+    }
 
     if (dialogMode.value === "edit" && editingRole.value) {
       // 编辑基本信息：menuIds 置为 undefined → 不修改菜单，避免意外清空
@@ -299,6 +329,7 @@ async function handleSubmit() {
         roleKey: form.roleKey,
         roleSort: form.roleSort,
         dataScope: form.dataScope,
+        ...(roleEditorUser.admin ? { organizationIds: form.dataScope === DataScope.CUSTOM ? form.organizationIds : [] } : {}),
         remark: form.remark,
         menuIds: undefined
       };
@@ -310,6 +341,7 @@ async function handleSubmit() {
         roleKey: form.roleKey,
         roleSort: form.roleSort,
         dataScope: form.dataScope,
+        ...(roleEditorUser.admin ? { organizationIds: form.dataScope === DataScope.CUSTOM ? form.organizationIds : [] } : {}),
         status: form.status,
         remark: form.remark
       };
@@ -436,7 +468,12 @@ async function openMenuDialog(role: SysRole) {
     ]);
     // 仅当响应属于当前最新查询、目标角色未变、组件仍挂载时才写入
     if (seq !== menuRequestSeq || role.roleId !== menuTargetRoleId || !menuMounted.value) return;
-    menuTree.value = tree;
+    retainedMenuIds.value = ids ?? [];
+    const markDisabled = (nodes: MenuNode[]): any[] => nodes.map(node => ({
+      ...node, disabled: node.status === 0 && !retainedMenuIds.value.includes(node.menuId),
+      children: markDisabled(node.children ?? [])
+    }));
+    menuTree.value = markDisabled(tree);
     // 先结束 loading，让 el-tree（v-else 分支）挂载；树实例就绪后再设置勾选。
     menuLoading.value = false;
     // 轮询等待树实例就绪：单次 nextTick 时树可能尚未完成挂载。
@@ -471,7 +508,10 @@ function updateSelectedCount() {
 }
 
 function selectAllMenus() {
-  treeRef.value?.setCheckedKeys?.(allMenuIds(menuTree.value));
+  treeRef.value?.setCheckedKeys?.(allMenuIds(menuTree.value).filter(id => {
+    const find = (nodes: any[]): any => nodes.find(n => n.menuId === id) ?? nodes.map(n => find(n.children ?? [])).find(Boolean);
+    return !find(menuTree.value)?.disabled;
+  }));
   updateSelectedCount();
 }
 
@@ -729,7 +769,7 @@ onMounted(() => {
           />
         </el-form-item>
         <el-form-item label="数据范围" prop="dataScope">
-          <el-select v-model="form.dataScope" style="width: 100%">
+          <el-select v-model="form.dataScope" :disabled="!roleEditorUser.admin" style="width: 100%">
             <el-option
               v-for="opt in DATA_SCOPE_OPTIONS"
               :key="opt.value"
@@ -738,6 +778,12 @@ onMounted(() => {
             />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="form.dataScope === DataScope.CUSTOM" label="自定义组织">
+          <el-select v-model="form.organizationIds" multiple filterable :disabled="!roleEditorUser.admin || !customScopeReady" style="width:100%" placeholder="选择可管理人员所属的组织">
+            <el-option v-for="org in scopeOrganizations" :key="org.organizationId" :label="org.organizationName" :value="org.organizationId" :disabled="org.status !== 1" />
+          </el-select>
+        </el-form-item>
+        <p class="scope-help">数据范围用于人员管理。知识库访问由知识库成员和可见性设置控制。</p>
         <el-form-item v-if="dialogMode === 'create'" label="状态" prop="status">
           <el-select v-model="form.status" style="width: 100%">
             <el-option :value="RoleStatus.ENABLED" label="启用" />

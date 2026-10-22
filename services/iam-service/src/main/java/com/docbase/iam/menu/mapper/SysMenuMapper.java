@@ -10,6 +10,11 @@ import java.util.Set;
 
 public interface SysMenuMapper extends BaseMapper<SysMenu> {
 
+    @Select("<script>SELECT DISTINCT permission FROM sys_menu WHERE deleted=0 " +
+            "AND permission IS NOT NULL AND permission != '' AND menu_id IN " +
+            "<foreach collection='menuIds' item='id' open='(' separator=',' close=')'>#{id}</foreach></script>")
+    Set<String> selectAllPermissionsByMenuIds(@Param("menuIds") java.util.Collection<Long> menuIds);
+
     /**
      * 查询用户可见的菜单集合（去重），用于构建菜单树。
      */
