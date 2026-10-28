@@ -49,6 +49,7 @@ describe("侧栏导航归组", () => {
     expect(navigation.map(item => item.routerName)).toEqual([
       "Home",
       "SidebarKnowledgeGroup",
+      "KnowledgeSearchPreview",
       "AiChat",
       "SystemManage"
     ]);
@@ -56,8 +57,8 @@ describe("侧栏导航归组", () => {
       "KnowledgeList",
       "IngestTask"
     ]);
-    expect(navigation[2].children).toEqual([]);
-    expect(navigation[3].children?.map(item => item.routerName)).toEqual([
+    expect(navigation[3].children).toEqual([]);
+    expect(navigation[4].children?.map(item => item.routerName)).toEqual([
       "SystemUser",
       "SystemRole",
       "SystemMenu"
@@ -76,7 +77,7 @@ describe("侧栏导航归组", () => {
       navigation
         .flatMap(item => (item.children?.length ? item.children : [item]))
         .map(item => item.routerName)
-    ).toEqual(["Home", "KnowledgeList", "FutureReport"]);
+    ).toEqual(["Home", "KnowledgeList", "KnowledgeSearchPreview", "FutureReport"]);
     expect(JSON.stringify(navigation)).not.toContain("SystemUser");
     expect(JSON.stringify(navigation)).not.toContain("IngestTask");
   });

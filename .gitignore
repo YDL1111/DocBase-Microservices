@@ -26,3 +26,5 @@ Thumbs.db
 # Reasonix execution-environment metadata (agent/task state). Never commit.
 .reasonix/
 reasonix.toml
+
+.workbuddy/

@@ -7,6 +7,8 @@ const emit = defineEmits<{ "update:modelValue": [value: string]; send: []; stop:
 const limit = computed(() => props.maxLength ?? 4000);
 /** The input stays editable while draining/cancelling so edits are not lost, but sending is disabled. */
 const inputDisabled = computed(() => props.streaming);
+/** 接近上限时才显示字数，避免常态视觉噪音 */
+const showCount = computed(() => props.modelValue.length > limit.value * 0.8);
 
 function submit(): void {
   if (props.streaming) emit("stop");
@@ -35,7 +37,8 @@ function onKeydown(event: KeyboardEvent): void {
         @keydown="onKeydown"
       />
       <div class="chat-composer__actions">
-        <span v-if="streaming" class="chat-composer__status">正在生成回答</span>
+        <span v-if="streaming" class="chat-composer__status" role="status" aria-live="polite">正在生成回答</span>
+        <span v-else-if="showCount" class="chat-composer__count" :class="{ 'is-limit': modelValue.length >= limit }">{{ modelValue.length }} / {{ limit }}</span>
         <span v-else class="chat-composer__hint">Enter 发送 · Shift + Enter 换行</span>
         <el-button
           type="primary"
@@ -54,25 +57,27 @@ function onKeydown(event: KeyboardEvent): void {
 <style scoped lang="scss">
 .chat-composer {
   padding: 12px 22px 16px;
-  background: #f7fafe;
+  background: var(--docbase-bg);
 }
 
 .chat-composer__box {
   max-width: 920px;
   margin: 0 auto;
   padding: 9px 10px 9px 15px;
-  background: #fff;
-  border: 1px solid #cadbe8;
-  border-radius: 8px;
-  box-shadow: 0 8px 22px rgba(41, 79, 111, 0.08);
+  background: var(--docbase-surface);
+  border: 1px solid var(--docbase-line);
+  border-radius: 10px;
+  box-shadow: 0 8px 22px rgba(29, 42, 37, 0.07);
 }
 
 .chat-composer__box:focus-within {
-  border-color: #6ca3ca;
-  box-shadow: 0 8px 24px rgba(37, 111, 168, 0.12);
+  border-color: var(--docbase-accent);
+  box-shadow: 0 8px 24px rgba(22, 92, 64, 0.12);
 }
 
 .chat-composer :deep(.el-textarea__inner) {
+  font-size: 15px;
+  color: var(--docbase-text);
   min-height: 50px !important;
   padding: 4px 0;
   box-shadow: none;
@@ -87,13 +92,18 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 .chat-composer__status,
-.chat-composer__hint {
-  color: #7b8f9f;
-  font-size: 11px;
+.chat-composer__hint,
+.chat-composer__count {
+  color: var(--docbase-subtle);
+  font-size: 13px;
 }
 
 .chat-composer__status {
-  color: #256fa8;
+  color: var(--docbase-accent);
+}
+
+.chat-composer__count.is-limit {
+  color: var(--docbase-danger);
 }
 
 .chat-composer__actions :deep(.el-button) {

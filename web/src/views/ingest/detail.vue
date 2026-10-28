@@ -12,7 +12,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessageBox } from "element-plus";
-import { ArrowLeft, Refresh } from "@element-plus/icons-vue";
+import { ArrowLeft, CircleClose, Refresh, RefreshRight } from "@element-plus/icons-vue";
 import {
   getIngestTask,
   retryIngestTask,
@@ -49,6 +49,8 @@ const taskId = computed<number | null>(() => {
 const task = ref<IngestTask | null>(null);
 const loading = ref(false);
 const operating = ref(false);
+/** 首次/切换加载是否失败（用于展示行内错误态与重试入口） */
+const loadFailed = ref(false);
 
 /**
  * 请求序号。taskId 变化时递增，用于丢弃过期响应。
@@ -88,6 +90,7 @@ async function fetchTask(mode: "switch" | "poll" = "switch") {
     // 切换任务时立即清空旧内容与旧轮询，避免展示过期数据
     task.value = null;
     objectKeyExpanded.value = false;
+    loadFailed.value = false;
     stopPolling();
     loading.value = true;
   }
@@ -97,11 +100,13 @@ async function fetchTask(mode: "switch" | "poll" = "switch") {
     // 仅当前 seq 且 taskId 未变化时写入
     if (seq !== requestSeq || currentId !== taskId.value) return;
     task.value = result;
+    loadFailed.value = false;
   } catch {
     // 请求失败（含 403/404）必须清空，不能保留旧任务
     if (seq === requestSeq && currentId === taskId.value) {
       if (mode === "switch") {
         task.value = null;
+        loadFailed.value = true;
         message.error("任务不存在或无权访问");
       }
       // poll 模式下保留旧内容，静默忽略
@@ -272,7 +277,7 @@ watch(
 </script>
 
 <template>
-  <div class="ingest-detail">
+  <div class="page-card ingest-detail">
     <!-- 无效 ID -->
     <div v-if="taskId === null" class="invalid-id">
       <el-result icon="error" title="404" sub-title="无效的任务 ID" />
@@ -280,13 +285,34 @@ watch(
 
     <div v-else v-loading="loading" class="detail-container">
       <el-button class="back-button" link :icon="ArrowLeft" @click="router.push('/ingest/tasks')">返回任务列表</el-button>
+
+      <!-- 加载失败：行内错误态 + 重试，避免白屏 -->
+      <el-result
+        v-if="loadFailed && !loading"
+        icon="error"
+        title="任务加载失败"
+        sub-title="任务不存在、已被删除或当前账号无权访问。"
+      >
+        <template #extra>
+          <el-button type="primary" :icon="Refresh" @click="fetchTask()">重新加载</el-button>
+          <el-button @click="router.push('/ingest/tasks')">返回任务列表</el-button>
+        </template>
+      </el-result>
+
       <div v-if="task" class="detail-header">
-        <h2>任务 #{{ task.id }}</h2>
+        <div class="detail-title">
+          <h2>任务 #{{ task.id }}</h2>
+          <span v-if="isActiveStatus(task.status)" class="live-indicator" role="status">
+            <i />自动刷新中
+          </span>
+        </div>
         <div class="header-actions">
           <el-button
             v-if="isRetryableStatus(task.status)"
             v-auth="'ingest:task:retry'"
             type="warning"
+            plain
+            :icon="RefreshRight"
             :disabled="operating"
             @click="handleRetry"
           >
@@ -296,12 +322,14 @@ watch(
             v-if="isCancelableStatus(task.status)"
             v-auth="'ingest:task:cancel'"
             type="danger"
+            plain
+            :icon="CircleClose"
             :disabled="operating"
             @click="handleCancel"
           >
-            取消
+            取消任务
           </el-button>
-          <el-button :icon="Refresh" circle @click="fetchTask" />
+          <el-button :icon="Refresh" circle aria-label="刷新任务详情" title="刷新" @click="fetchTask()" />
         </div>
       </div>
 
@@ -341,7 +369,12 @@ watch(
         <div class="section">
           <div class="section-header">
             <span class="section-title">Object Key</span>
-            <el-button link @click="objectKeyExpanded = !objectKeyExpanded">
+            <el-button
+              link
+              type="primary"
+              :aria-expanded="objectKeyExpanded"
+              @click="objectKeyExpanded = !objectKeyExpanded"
+            >
               {{ objectKeyExpanded ? "折叠" : "展开" }}
             </el-button>
           </div>
@@ -363,7 +396,8 @@ watch(
             <el-timeline-item
               v-if="task.startedAt"
               :timestamp="formatBackendDateTime(task.startedAt)"
-              type="warning"
+              type="primary"
+              hollow
               placement="top"
             >
               开始处理
@@ -391,24 +425,64 @@ watch(
 
 <style lang="scss" scoped>
 .ingest-detail {
-  background: #fff;
-  padding: 16px;
-  border-radius: 4px;
+  min-height: 320px;
 }
 
 .detail-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 16px;
 
   h2 {
     margin: 0;
+    color: var(--docbase-ink);
     font-size: 18px;
+    font-weight: 600;
   }
 }
 
-.back-button { margin: 0 0 12px -4px; color: #4d6b83; }
+.detail-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 活跃任务的自动刷新指示 */
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  color: var(--docbase-success);
+  font-size: 13px;
+  background: var(--docbase-success-soft);
+  border-radius: 20px;
+
+  i {
+    width: 6px;
+    height: 6px;
+    background: var(--docbase-success);
+    border-radius: 50%;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.back-button {
+  margin: 0 0 10px -6px;
+  color: var(--docbase-muted);
+
+  &:hover {
+    color: var(--docbase-accent);
+  }
+}
 
 .header-actions {
   display: flex;
@@ -426,27 +500,33 @@ watch(
 }
 
 .section-title {
-  font-weight: 600;
-  font-size: 14px;
-  color: #303133;
   margin-bottom: 8px;
+  color: var(--docbase-ink);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .code-block {
-  background: #f5f7fa;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
+  margin: 0;
   padding: 12px;
-  font-family: monospace;
-  font-size: 12px;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 13px;
   white-space: pre-wrap;
   word-break: break-all;
-  margin: 0;
+  background: var(--docbase-surface-soft);
+  border: 1px solid var(--docbase-line-soft);
+  border-radius: var(--docbase-radius-sm);
 }
 
 .error-block {
-  background: #fef0f0;
-  border-color: #f56c6c;
-  color: #f56c6c;
+  color: var(--docbase-danger);
+  background: var(--docbase-danger-soft);
+  border-color: color-mix(in srgb, var(--docbase-danger) 35%, white);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-indicator i {
+    animation: none;
+  }
 }
 </style>

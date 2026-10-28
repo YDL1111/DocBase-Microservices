@@ -1,6 +1,10 @@
 <template>
   <div class="app-main">
-    <router-view />
+    <router-view v-slot="{ Component }">
+      <transition name="route-fade" mode="out-in">
+        <component :is="Component" />
+      </transition>
+    </router-view>
   </div>
 </template>
 
@@ -8,13 +12,17 @@
 .app-main {
   flex: 1;
   overflow: auto;
-  padding: 22px 24px 28px;
-  background: #f4f7fa;
+  margin: 0 18px 18px 0;
+  padding: 28px 30px 36px;
+  border: 1px solid var(--docbase-line-soft);
+  border-radius: 16px;
+  background: var(--docbase-surface);
 }
 
 @media (max-width: 767px) {
   .app-main {
-    padding: 14px 12px 20px;
+    margin: 0 8px 8px;
+    padding: 16px 14px 24px;
   }
 }
 </style>

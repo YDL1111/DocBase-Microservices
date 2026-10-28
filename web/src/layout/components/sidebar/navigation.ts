@@ -8,7 +8,7 @@ export interface SidebarMenuNode extends Omit<MenuNode, "children"> {
 const HOME_MENU: SidebarMenuNode = {
   menuId: -1,
   parentId: 0,
-  menuName: "首页",
+  menuName: "工作台",
   routerName: "Home",
   path: "/home",
   permission: "",
@@ -58,7 +58,8 @@ function dedupeByMenuId(nodes: SidebarMenuNode[]): SidebarMenuNode[] {
 /**
  * Builds a concise navigation tree from the nodes authorized by IAM.
  * It never invents business permissions: synthetic nodes are navigation-only
- * containers, while every clickable business entry comes from /api/auth/menus.
+ * containers. The local search preview uses no backend data; all other business entries
+ * come from /api/auth/menus.
  */
 export function buildSidebarNavigation(menuTree: MenuNode[]): SidebarMenuNode[] {
   const visibleRoots = menuTree
@@ -80,7 +81,7 @@ export function buildSidebarNavigation(menuTree: MenuNode[]): SidebarMenuNode[] 
     navigation.push({
       menuId: -2,
       parentId: 0,
-      menuName: "知识资产",
+      menuName: "文档管理",
       routerName: "SidebarKnowledgeGroup",
       path: "/__navigation/knowledge",
       permission: "",
@@ -92,7 +93,8 @@ export function buildSidebarNavigation(menuTree: MenuNode[]): SidebarMenuNode[] 
       children: knowledgeEntries
     });
   }
-  if (chat) navigation.push(chat);
+  navigation.push({ ...HOME_MENU, menuId: -3, menuName: "知识检索", routerName: "KnowledgeSearchPreview", path: "/search", children: [] });
+  if (chat) navigation.push({ ...chat, menuName: "智能问答" });
 
   const groupedRoots = new Set([
     "Knowledge",
@@ -104,7 +106,7 @@ export function buildSidebarNavigation(menuTree: MenuNode[]): SidebarMenuNode[] 
     ...visibleRoots.filter(root => !groupedRoots.has(root.routerName))
   );
 
-  if (system?.children?.length) navigation.push(system);
+  if (system?.children?.length) navigation.push({ ...system, menuName: "权限管理" });
   return navigation;
 }
 

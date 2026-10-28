@@ -11,7 +11,6 @@
  */
 import { computed, reactive, ref, watch } from "vue";
 import type { FormInstance, FormRules } from "element-plus";
-import { ElMessageBox } from "element-plus";
 import { Plus, FolderOpened, Edit, Delete } from "@element-plus/icons-vue";
 import {
   getFolderTree,
@@ -29,6 +28,8 @@ const knowledgeStore = useKnowledgeStoreHook();
 
 const loading = ref(false);
 const dialogVisible = ref(false);
+const submitting = ref(false);
+const deletingIds = ref<Set<number>>(new Set());
 const editingNode = ref<FolderNode | null>(null);
 const formRef = ref<FormInstance>();
 const treeRef = ref();
@@ -78,12 +79,13 @@ function openEditDialog(node: FolderNode) {
 }
 
 async function handleSubmit() {
-  if (!formRef.value) return;
+  if (!formRef.value || submitting.value) return;
   if (props.knowledgeBaseId === null) return;
-  const valid = await formRef.value.validate().catch(() => false);
-  if (!valid) return;
-
+  submitting.value = true;
   try {
+    const valid = await formRef.value.validate().catch(() => false);
+    if (!valid) return;
+
     if (editingNode.value) {
       const data: UpdateFolderRequest = {
         parentId: form.parentId,
@@ -104,23 +106,32 @@ async function handleSubmit() {
     dialogVisible.value = false;
     fetchTree();
   } catch {
-    // 错误提示已由请求层处理
+    // 错误提示已由请求层处理，失败时保留表单供修正后重试
+  } finally {
+    submitting.value = false;
   }
 }
 
 async function handleDelete(node: FolderNode) {
-  if (props.knowledgeBaseId === null) return;
+  if (props.knowledgeBaseId === null || deletingIds.value.has(node.id)) return;
+  deletingIds.value.add(node.id);
   try {
-    await ElMessageBox.confirm(
+    await message.confirmDanger(
       `确定删除分类“${node.name}”吗？其下的子分类也会被删除。`,
-      "删除分类",
-      { type: "warning" }
+      "删除分类"
     );
+  } catch {
+    deletingIds.value.delete(node.id);
+    return; // 用户取消确认
+  }
+  try {
     await deleteFolder(props.knowledgeBaseId, node.id);
     message.success("删除成功");
     fetchTree();
   } catch {
     // 错误提示已由请求层处理
+  } finally {
+    deletingIds.value.delete(node.id);
   }
 }
 
@@ -195,7 +206,25 @@ watch(
       </el-button>
     </div>
 
+    <!-- 空状态：引导创建第一个分类 -->
+    <el-empty
+      v-if="!loading && knowledgeStore.folderTree.length === 0"
+      class="folder-empty"
+      description="暂无文档分类"
+      :image-size="80"
+    >
+      <el-button
+        v-auth="'knowledge:folder:create'"
+        type="primary"
+        :icon="Plus"
+        @click="openCreateDialog(0)"
+      >
+        新建第一个分类
+      </el-button>
+    </el-empty>
+
     <el-tree
+      v-else
       ref="treeRef"
       v-loading="loading"
       :data="knowledgeStore.folderTree"
@@ -232,6 +261,7 @@ watch(
               link
               type="danger"
               :icon="Delete"
+              :disabled="deletingIds.has(data.id)"
               @click.stop="handleDelete(data)"
             >
               删除
@@ -267,8 +297,8 @@ watch(
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button :disabled="submitting" @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
   </div>
@@ -286,29 +316,36 @@ watch(
   gap: 20px;
   margin-bottom: 18px;
   padding: 18px 20px;
-  background: #f5f9fd;
-  border: 1px solid #deebf4;
-  border-radius: 8px;
+  background: var(--docbase-accent-soft);
+  border: 1px solid var(--docbase-line-soft);
+  border-radius: var(--docbase-radius-md);
 }
 
 .classification-header h3 {
   margin: 0 0 5px;
-  color: #183b5b;
+  color: var(--docbase-ink);
   font-size: 16px;
 }
 
 .classification-header p {
   margin: 0;
-  color: #6d8294;
+  color: var(--docbase-muted);
   font-size: 13px;
+}
+
+.folder-empty {
+  padding: 32px 0;
+  background: var(--docbase-surface);
+  border: 1px dashed var(--docbase-line);
+  border-radius: var(--docbase-radius-md);
 }
 
 .folder-tree {
   min-height: 200px;
   padding: 10px 8px;
-  background: #fff;
-  border: 1px solid #e3eaf0;
-  border-radius: 8px;
+  background: var(--docbase-surface);
+  border: 1px solid var(--docbase-line-soft);
+  border-radius: var(--docbase-radius-md);
 }
 
 .tree-node {
@@ -326,7 +363,16 @@ watch(
     gap: 4px;
   }
 
-  &:hover .node-actions {
+  /* 键盘焦点（focus-within）与 hover 均可触达节点操作 */
+  &:hover .node-actions,
+  &:focus-within .node-actions {
+    display: flex;
+  }
+}
+
+/* 触屏设备无 hover，节点操作常显 */
+@media (hover: none) {
+  .tree-node .node-actions {
     display: flex;
   }
 }

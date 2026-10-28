@@ -390,7 +390,7 @@ onUnmounted(() => {
       <header class="chat-workspace__header">
         <div>
           <span class="chat-workspace__eyebrow">知识库智能助手</span>
-          <h1>{{ activeSession?.title?.trim() || "知识问答" }}</h1>
+          <h1>{{ activeSession?.title?.trim() || "智能问答" }}</h1>
         </div>
         <button
           class="knowledge-status"
@@ -432,15 +432,16 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .chat-page {
-  height: calc(100vh - 106px);
+
+  height: calc(100vh - 132px);
   min-height: 560px;
   display: grid;
   grid-template-columns: 276px minmax(0, 1fr);
   overflow: hidden;
-  background: #fff;
-  border: 1px solid #dce7f0;
-  border-radius: 8px;
-  box-shadow: 0 12px 30px rgba(35, 72, 103, 0.07);
+  background: var(--docbase-surface);
+  border: 1px solid var(--docbase-line-soft);
+  border-radius: var(--docbase-radius-lg);
+  box-shadow: var(--docbase-shadow-sm);
 }
 
 .chat-workspace {
@@ -448,7 +449,7 @@ onUnmounted(() => {
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  background: #f7fafe;
+  background: var(--docbase-bg);
 }
 
 .chat-workspace__header {
@@ -458,26 +459,26 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 18px;
   padding: 14px 24px;
-  background: rgba(255, 255, 255, 0.94);
-  border-bottom: 1px solid #e2ebf2;
+  background: var(--docbase-surface);
+  border-bottom: 1px solid var(--docbase-line-soft);
 }
 
 .chat-workspace__eyebrow {
   display: block;
   margin-bottom: 3px;
-  color: #66809a;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0;
+  color: var(--docbase-amber-strong);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
 }
 
 .chat-workspace__header h1 {
   max-width: min(560px, 54vw);
   margin: 0;
   overflow: hidden;
-  color: #173956;
-  font-size: 18px;
-  font-weight: 600;
+  color: var(--docbase-ink);
+  font-size: 19px;
+  font-weight: 700;
   letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -487,29 +488,29 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 6px 9px;
-  color: #42647f;
+  padding: 6px 10px;
+  color: var(--docbase-accent);
   font-size: 12px;
-  background: #eef6fb;
+  background: var(--docbase-accent-soft);
   border-radius: 6px;
   white-space: nowrap;
   border: 0;
   cursor: pointer;
 }
 
-.knowledge-status:not(:disabled):hover { background: #e2f0f9; color: #245f8d; }
+.knowledge-status:not(:disabled):hover { background: #d5e4d7; color: var(--docbase-accent-hover); }
 .knowledge-status:disabled { cursor: default; opacity: 0.7; }
-.knowledge-status__edit { padding-left: 2px; color: #2b78b8; font-weight: 600; }
+.knowledge-status__edit { padding-left: 2px; color: var(--docbase-accent); font-weight: 600; }
 
 .knowledge-status i {
   width: 7px;
   height: 7px;
-  background: #2d9f78;
+  background: var(--docbase-success);
   border-radius: 50%;
 }
 
 .knowledge-status.muted i {
-  background: #9aabba;
+  background: var(--docbase-subtle);
 }
 
 @media (max-width: 760px) {

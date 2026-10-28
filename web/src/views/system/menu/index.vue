@@ -32,7 +32,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import type { FormInstance, FormRules } from "element-plus";
-import { Plus, Edit, Delete, Refresh, View } from "@element-plus/icons-vue";
+import { Plus, Edit, Refresh, View, ArrowDown } from "@element-plus/icons-vue";
 import {
   listMenuTree,
   getMenu,
@@ -78,11 +78,34 @@ const userStore = useUserStoreHook();
 const canManageOwners = computed(
   () => userStore.admin === true || userStore.hasPermission("admin:all")
 );
+const hasAuth = (perm: string | string[]) => userStore.hasPermission(perm);
 
 /* ========================= 列表状态 ========================= */
 
 const loading = ref(false);
 const menuTree = ref<MenuNode[]>([]);
+
+/** 前端筛选关键词（树为全量加载，名称/路由/权限标识客户端过滤） */
+const filterKeyword = ref("");
+
+/** 过滤后的菜单树：保留命中节点的完整祖先路径，保证树结构可展开 */
+const filteredMenuTree = computed<MenuNode[]>(() => {
+  const kw = filterKeyword.value.trim().toLowerCase();
+  if (!kw) return menuTree.value;
+  const hit = (node: MenuNode) =>
+    (node.menuName ?? "").toLowerCase().includes(kw) ||
+    (node.routerName ?? "").toLowerCase().includes(kw) ||
+    (node.permission ?? "").toLowerCase().includes(kw);
+  const walk = (nodes: MenuNode[]): MenuNode[] =>
+    nodes.flatMap(node => {
+      const children = walk(node.children ?? []);
+      if (hit(node) || children.length > 0) {
+        return [{ ...node, children: children.length ? children : undefined }];
+      }
+      return [];
+    });
+  return walk(menuTree.value);
+});
 
 /** 树请求序号：防止旧响应覆盖新响应 */
 let requestSeq = 0;
@@ -662,15 +685,21 @@ async function handleStatusChange(node: MenuNode) {
 
 /* ========================= 删除 ========================= */
 
+/** "更多"下拉菜单命令分发 */
+function handleRowCommand(command: string, node: MenuNode) {
+  if (command === "toggle-status") handleStatusChange(node);
+  else if (command === "owners") openOwnerDialog(node);
+  else if (command === "delete") handleDelete(node);
+}
+
 async function handleDelete(node: MenuNode) {
   if (operatingIds.value.has(node.menuId)) return;
   // 在弹出确认框前立即上锁，防止快速双击打开多个确认框导致重复请求
   operatingIds.value.add(node.menuId);
   try {
     try {
-      await message.confirm(
-        `确定删除菜单"${node.menuName}"吗？删除后不可恢复。`,
-        "删除确认"
+      await message.confirmDanger(
+        `确定删除菜单"${node.menuName}"吗？删除后不可恢复。`
       );
     } catch {
       return; // 用户取消确认，由 finally 统一释放锁
@@ -703,15 +732,25 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-auth="'system:menu:list'" class="menu-manage">
+  <div v-auth="'system:menu:list'" class="page-card menu-manage">
     <!-- 工具栏 -->
-    <div class="toolbar">
-      <h2>菜单管理</h2>
-      <div class="toolbar-actions">
+    <div class="page-toolbar">
+      <div class="page-toolbar__title">
+        <h2>菜单管理</h2>
+        <p>维护系统导航、路由与按钮权限标识</p>
+      </div>
+      <div class="page-toolbar__actions">
+        <el-input
+          v-model="filterKeyword"
+          placeholder="按名称 / 路由 / 权限标识筛选"
+          clearable
+          style="width: 220px"
+        />
         <el-button
           :icon="Refresh"
           circle
           aria-label="刷新菜单树"
+          title="刷新"
           @click="fetchTree('user')"
         />
         <el-button
@@ -726,12 +765,26 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 空状态 -->
-    <el-empty v-if="!loading && menuTree.length === 0" description="暂无菜单" />
+    <el-empty
+      v-if="!loading && filteredMenuTree.length === 0"
+      :description="filterKeyword ? '没有符合筛选条件的菜单' : '暂无菜单'"
+    >
+      <el-button
+        v-if="!filterKeyword"
+        v-auth="'system:menu:create'"
+        type="primary"
+        :icon="Plus"
+        @click="openCreateDialog"
+      >
+        新建第一个菜单
+      </el-button>
+    </el-empty>
 
     <!-- 菜单树形表格 -->
     <el-table
+      v-else
       v-loading="loading"
-      :data="menuTree"
+      :data="filteredMenuTree"
       row-key="menuId"
       :tree-props="{ children: 'children' }"
       default-expand-all
@@ -766,7 +819,7 @@ onBeforeUnmount(() => {
           <span v-else-if="scope?.row">-</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="380" fixed="right">
+      <el-table-column label="操作" width="200" fixed="right">
         <template #default="scope">
           <template v-if="scope?.row">
             <el-button
@@ -787,34 +840,43 @@ onBeforeUnmount(() => {
             >
               编辑
             </el-button>
-            <el-button
-              v-auth="'system:menu:update'"
-              link
-              :type="scope.row.status === MenuStatus.ENABLED ? 'warning' : 'success'"
-              :disabled="operatingIds.has(scope.row.menuId)"
-              @click="handleStatusChange(scope.row)"
+            <el-dropdown
+              trigger="click"
+              @command="(cmd: string) => handleRowCommand(cmd, scope.row)"
             >
-              {{ scope.row.status === MenuStatus.ENABLED ? "停用" : "启用" }}
-            </el-button>
-            <el-button
-              v-auth="'system:menu:delete'"
-              link
-              type="danger"
-              :icon="Delete"
-              :disabled="operatingIds.has(scope.row.menuId)"
-              @click="handleDelete(scope.row)"
-            >
-              删除
-            </el-button>
-            <el-button
-              v-if="canManageOwners"
-              link
-              type="primary"
-              :disabled="ownerSubmitting"
-              @click="openOwnerDialog(scope.row)"
-            >
-              管理归属
-            </el-button>
+              <el-button
+                link
+                type="primary"
+                :disabled="operatingIds.has(scope.row.menuId)"
+              >
+                更多<el-icon><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item
+                    v-if="hasAuth('system:menu:update')"
+                    command="toggle-status"
+                  >
+                    {{ scope.row.status === MenuStatus.ENABLED ? "停用菜单" : "启用菜单" }}
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    v-if="canManageOwners"
+                    command="owners"
+                    :disabled="ownerSubmitting"
+                  >
+                    管理归属
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    v-if="hasAuth('system:menu:delete')"
+                    command="delete"
+                    divided
+                    class="dropdown-item-danger"
+                  >
+                    删除菜单
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </template>
       </el-table-column>
@@ -917,29 +979,30 @@ onBeforeUnmount(() => {
 
     <!-- 详情对话框 -->
     <el-dialog v-model="detailDialogVisible" title="菜单详情" width="560px">
-      <div v-if="detailMenu" v-loading="detailLoading" class="detail-grid">
-        <div class="detail-item"><span class="label">ID</span><span>{{ detailMenu.menuId }}</span></div>
-        <div class="detail-item"><span class="label">名称</span><span>{{ detailMenu.menuName }}</span></div>
-        <div class="detail-item"><span class="label">类型</span><span>{{ menuTypeLabel(detailMenu.menuType) }}</span></div>
-        <div class="detail-item">
-          <span class="label">系统保留</span>
-          <span>
-            <el-tag v-if="detailMenu.isSystem === 1" type="warning" size="small">系统保留</el-tag>
-            <span v-else>-</span>
-          </span>
-        </div>
-        <div class="detail-item"><span class="label">状态</span><span>{{ menuStatusLabel(detailMenu.status) }}</span></div>
-        <div class="detail-item"><span class="label">父节点</span><span>{{ detailMenu.parentId }}</span></div>
-        <div class="detail-item"><span class="label">路由名称</span><span>{{ detailMenu.routerName || "-" }}</span></div>
-        <div class="detail-item"><span class="label">路径</span><span>{{ detailMenu.path || "-" }}</span></div>
-        <div class="detail-item"><span class="label">权限标识</span><span>{{ detailMenu.permission || "-" }}</span></div>
-        <div class="detail-item"><span class="label">isButton</span><span>{{ detailMenu.isButton }}</span></div>
-        <div class="detail-item"><span class="label">排序</span><span>{{ detailMenu.sortNum }}</span></div>
-        <div class="detail-item"><span class="label">metaInfo</span><span>{{ detailMenu.metaInfo || "-" }}</span></div>
-        <div class="detail-item"><span class="label">备注</span><span>{{ detailMenu.remark || "-" }}</span></div>
-        <div class="detail-item"><span class="label">创建时间</span><span>{{ detailMenu.createTime || "-" }}</span></div>
-        <div class="detail-item"><span class="label">更新时间</span><span>{{ detailMenu.updateTime || "-" }}</span></div>
-      </div>
+      <el-descriptions v-if="detailMenu" v-loading="detailLoading" :column="2" border>
+        <el-descriptions-item label="ID">{{ detailMenu.menuId }}</el-descriptions-item>
+        <el-descriptions-item label="名称">{{ detailMenu.menuName }}</el-descriptions-item>
+        <el-descriptions-item label="类型">
+          <el-tag :type="menuTypeTagType(detailMenu.menuType)" size="small">{{ menuTypeLabel(detailMenu.menuType) }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="系统保留">
+          <el-tag v-if="detailMenu.isSystem === 1" type="warning" size="small">系统保留</el-tag>
+          <span v-else>-</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag :type="menuStatusTagType(detailMenu.status)" size="small">{{ menuStatusLabel(detailMenu.status) }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="父节点">{{ detailMenu.parentId }}</el-descriptions-item>
+        <el-descriptions-item label="路由名称">{{ detailMenu.routerName || "-" }}</el-descriptions-item>
+        <el-descriptions-item label="路径">{{ detailMenu.path || "-" }}</el-descriptions-item>
+        <el-descriptions-item label="权限标识" :span="2">{{ detailMenu.permission || "-" }}</el-descriptions-item>
+        <el-descriptions-item label="isButton">{{ detailMenu.isButton }}</el-descriptions-item>
+        <el-descriptions-item label="排序">{{ detailMenu.sortNum }}</el-descriptions-item>
+        <el-descriptions-item label="metaInfo" :span="2">{{ detailMenu.metaInfo || "-" }}</el-descriptions-item>
+        <el-descriptions-item label="备注" :span="2">{{ detailMenu.remark || "-" }}</el-descriptions-item>
+        <el-descriptions-item label="创建时间">{{ detailMenu.createTime || "-" }}</el-descriptions-item>
+        <el-descriptions-item label="更新时间">{{ detailMenu.updateTime || "-" }}</el-descriptions-item>
+      </el-descriptions>
       <template #footer>
         <el-button @click="detailDialogVisible = false">关闭</el-button>
       </template>
@@ -1011,45 +1074,7 @@ onBeforeUnmount(() => {
 
 <style lang="scss" scoped>
 .menu-manage {
-  background: #fff;
-  padding: 16px;
-  border-radius: 4px;
-}
-
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-
-  h2 {
-    margin: 0;
-    font-size: 18px;
-  }
-}
-
-.toolbar-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px 24px;
-  min-height: 60px;
-}
-
-.detail-item {
-  display: flex;
-  gap: 8px;
-  font-size: 14px;
-
-  .label {
-    color: #909399;
-    white-space: nowrap;
-  }
+  min-height: 320px;
 }
 
 .owner-loading {
@@ -1083,7 +1108,7 @@ onBeforeUnmount(() => {
 
 .owner-role-key {
   color: var(--el-text-color-secondary);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .owner-role-meta {

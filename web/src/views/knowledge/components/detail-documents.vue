@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { ElMessageBox } from "element-plus";
-import { Delete, Edit, Plus, Refresh, RefreshRight, View } from "@element-plus/icons-vue";
+import { ArrowDown, Delete, Edit, Plus, Refresh, RefreshRight, View } from "@element-plus/icons-vue";
 import { listDocuments, deleteDocument, getDocumentContent, reingestDocument, updateDocument } from "@/api/knowledge";
 import { useKnowledgeStoreHook } from "@/store/modules/knowledge";
+import { useUserStoreHook } from "@/store/modules/user";
 import { message } from "@/utils/message";
+import { formatBackendDateTime } from "@/utils/date-time";
 import { DocumentStatus, IngestStatus, documentStatusLabel, ingestStatusLabel, type KnowledgeDocument, type UpdateDocumentRequest } from "@/api/types";
 import DocumentUploadDialog from "./document-upload-dialog.vue";
 
 const props = defineProps<{ knowledgeBaseId: number | null }>();
 const knowledgeStore = useKnowledgeStoreHook();
+const userStore = useUserStoreHook();
+const hasAuth = (perm: string) => userStore.hasPermission(perm);
 const loading = ref(false);
 const uploadVisible = ref(false);
 const editVisible = ref(false);
@@ -227,7 +231,7 @@ async function handleDelete(documentId: number, title: string): Promise<void> {
   if (operatingIds.value.has(documentId)) return;
   setOperating(documentId, true);
   try {
-    await ElMessageBox.confirm(`确定删除文档“${title}”吗？删除后不可恢复。`, "删除确认", { type: "warning" });
+    await message.confirmDanger(`确定删除文档“${title}”吗？删除后不可恢复。`);
     await deleteDocument(documentId);
     if (mounted) {
       message.success("删除成功");
@@ -246,6 +250,19 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function documentStatusTagType(status: number): "success" | "info" | "warning" {
+  if (status === DocumentStatus.PUBLISHED) return "success";
+  if (status === DocumentStatus.ARCHIVED) return "warning";
+  return "info";
+}
+
+/** "更多"下拉菜单命令分发 */
+function handleRowCommand(command: string, row: KnowledgeDocument): void {
+  if (command === "publish") void handlePublishToggle(row);
+  else if (command === "reingest") void handleReingest(row);
+  else if (command === "delete") void handleDelete(row.id, row.title);
 }
 
 watch(() => props.knowledgeBaseId, () => {
@@ -278,27 +295,63 @@ onUnmounted(() => {
       <span class="status-hint">上传进度是 HTTP 传输进度；入库状态由异步处理更新。</span>
     </div>
 
+    <el-empty
+      v-if="!loading && knowledgeStore.documentList.length === 0"
+      description="暂无文档"
+    >
+      <el-button v-auth="'knowledge:document:create'" type="primary" :icon="Plus" @click="uploadVisible = true">上传第一个文档</el-button>
+    </el-empty>
+
+    <template v-else>
     <el-table v-loading="loading" :data="knowledgeStore.documentList" stripe>
       <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
       <el-table-column prop="originalFilename" label="文件名" min-width="180" show-overflow-tooltip />
       <el-table-column label="大小" width="100"><template #default="{ row }">{{ formatFileSize(row.fileSize) }}</template></el-table-column>
       <el-table-column label="入库状态" width="110"><template #default="{ row }"><el-tag :type="row.ingestStatus === 3 ? 'success' : row.ingestStatus === 4 ? 'danger' : row.ingestStatus === 2 ? 'warning' : 'info'">{{ ingestStatusLabel(row.ingestStatus) }}</el-tag></template></el-table-column>
-      <el-table-column label="文档状态" width="100"><template #default="{ row }">{{ documentStatusLabel(row.status) }}</template></el-table-column>
+      <el-table-column label="文档状态" width="100"><template #default="{ row }"><el-tag :type="documentStatusTagType(row.status)" effect="light">{{ documentStatusLabel(row.status) }}</el-tag></template></el-table-column>
       <el-table-column label="问答可用性" width="130"><template #default="{ row }"><el-tag :type="qaAvailability(row).type">{{ qaAvailability(row).label }}</el-tag></template></el-table-column>
       <el-table-column label="版本" width="80"><template #default="{ row }">v{{ row.version }}</template></el-table-column>
-      <el-table-column prop="createdAt" label="创建时间" width="180" />
-      <el-table-column label="操作" width="390" fixed="right">
+      <el-table-column label="创建时间" width="170"><template #default="{ row }">{{ formatBackendDateTime(row.createdAt) }}</template></el-table-column>
+      <el-table-column label="操作" width="230" fixed="right">
         <template #default="{ row }">
           <el-button v-auth="'knowledge:document:list'" link type="primary" :icon="View" :loading="operatingIds.has(row.id)" @click="handlePreview(row)">预览</el-button>
           <el-button v-auth="'knowledge:document:update'" link type="primary" :icon="Edit" :disabled="operatingIds.has(row.id)" @click="openEdit(row)">编辑</el-button>
-          <el-button v-auth="'knowledge:document:update'" link :type="row.status === DocumentStatus.PUBLISHED ? 'info' : 'success'" :disabled="operatingIds.has(row.id)" @click="handlePublishToggle(row)">{{ row.status === DocumentStatus.PUBLISHED ? '撤回' : '发布' }}</el-button>
-          <el-button v-auth="'knowledge:document:update'" link type="warning" :icon="RefreshRight" :disabled="operatingIds.has(row.id) || isActiveDocument(row)" @click="handleReingest(row)">重新入库</el-button>
-          <el-button v-auth="'knowledge:document:delete'" link type="danger" :icon="Delete" :disabled="operatingIds.has(row.id)" @click="handleDelete(row.id, row.title)">删除</el-button>
+          <el-dropdown trigger="click" @command="(cmd: string) => handleRowCommand(cmd, row)">
+            <el-button link type="primary" :disabled="operatingIds.has(row.id)">
+              更多<el-icon><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-if="hasAuth('knowledge:document:update')"
+                  command="publish"
+                >
+                  {{ row.status === DocumentStatus.PUBLISHED ? '撤回发布' : '发布' }}
+                </el-dropdown-item>
+                <el-dropdown-item
+                  v-if="hasAuth('knowledge:document:update')"
+                  command="reingest"
+                  :disabled="isActiveDocument(row)"
+                >
+                  重新入库
+                </el-dropdown-item>
+                <el-dropdown-item
+                  v-if="hasAuth('knowledge:document:delete')"
+                  command="delete"
+                  divided
+                  class="dropdown-item-danger"
+                >
+                  删除
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </template>
       </el-table-column>
     </el-table>
 
-    <el-pagination v-if="knowledgeStore.documentTotal > 0" class="pagination" layout="total, sizes, prev, pager, next, jumper" :total="knowledgeStore.documentTotal" :current-page="pagination.current" :page-size="pagination.size" :page-sizes="[10, 20, 50]" @current-change="handlePageChange" @size-change="handleSizeChange" />
+    <el-pagination v-if="knowledgeStore.documentTotal > 0" class="table-pagination" layout="total, sizes, prev, pager, next, jumper" :total="knowledgeStore.documentTotal" :current-page="pagination.current" :page-size="pagination.size" :page-sizes="[10, 20, 50]" @current-change="handlePageChange" @size-change="handleSizeChange" />
+    </template>
 
     <DocumentUploadDialog v-model="uploadVisible" :knowledge-base-id="knowledgeBaseId" :folder-tree="knowledgeStore.folderTree" :default-folder-id="knowledgeStore.currentFolderId" @uploaded="handleUploaded" @refresh="handleUploadRefresh" />
 

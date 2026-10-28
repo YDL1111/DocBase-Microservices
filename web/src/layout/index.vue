@@ -59,19 +59,18 @@ onBeforeUnmount(() => {
   height: 100%;
   display: flex;
   overflow: hidden;
-  background: #f4f7fa;
+  background: var(--docbase-bg);
 }
 
 .sidebar-container {
   position: relative;
   z-index: 1001;
   width: var(--docbase-sidebar-width);
-  transition:
-    width 0.2s ease,
-    transform 0.25s ease;
-  background: #f7f9fc;
-  border-right: 1px solid #dfe6ee;
   flex-shrink: 0;
+  overflow: hidden;
+  background: var(--docbase-surface-soft);
+  box-shadow: none;
+  transition: width 0.24s cubic-bezier(0.4, 0, 0.2, 1), transform 0.25s ease;
 }
 
 .sidebar-collapsed .sidebar-container {
@@ -84,7 +83,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   min-width: 0;
   height: 100vh;
-  background: #f4f7fa;
+  background: var(--docbase-bg);
 }
 
 .app-mask {
@@ -92,8 +91,9 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 1000;
   padding: 0;
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(17, 17, 26, 0.48);
   border: 0;
+  backdrop-filter: blur(3px);
 }
 
 @media (max-width: 767px) {

@@ -21,5 +21,5 @@ async function submit(): Promise<void> { const valid = await formRef.value?.vali
 
 <style scoped>
 .knowledge-picker { width: 100%; }
-.knowledge-picker small { display: block; margin-top: 6px; color: #7b8da1; line-height: 1.5; }
+.knowledge-picker small { display: block; margin-top: 6px; color: var(--docbase-subtle); line-height: 1.5; }
 </style>

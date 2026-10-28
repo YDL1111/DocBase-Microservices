@@ -63,24 +63,26 @@ function displayTitle(session: ChatSession): string {
   flex-direction: column;
   gap: 12px;
   padding: 18px 12px 12px;
-  background: #edf4fa;
-  border-right: 1px solid #d6e3ed;
+  background: var(--docbase-surface-soft);
+  border-right: 1px solid var(--docbase-line);
 }
 
 .session-list__identity {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 2px 6px 8px;
-  color: #245f8d;
+  padding: 2px 6px 10px;
+  color: var(--docbase-ink);
 }
 
 .session-list__identity > .el-icon {
   width: 34px;
   height: 34px;
+  color: var(--docbase-amber);
   font-size: 18px;
-  background: #dcebf6;
-  border-radius: 7px;
+  background: var(--docbase-accent-soft);
+  border: 1px solid var(--docbase-line);
+  border-radius: 8px;
 }
 
 .session-list__identity span,
@@ -90,14 +92,14 @@ function displayTitle(session: ChatSession): string {
 
 .session-list__identity span {
   margin-bottom: 2px;
-  color: #71899d;
-  font-size: 9px;
+  color: var(--docbase-muted);
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
 }
 
 .session-list__identity strong {
-  color: #173956;
+  color: var(--docbase-ink);
   font-size: 15px;
 }
 
@@ -112,12 +114,37 @@ function displayTitle(session: ChatSession): string {
   flex: 1;
 }
 
+/* 浅色会话栏与主工作区共享品牌强调色 */
+.session-list__toolbar :deep(.el-button--primary) {
+  color: #fff;
+  background: var(--docbase-accent);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.session-list__toolbar :deep(.el-button--primary:hover) {
+  color: #fff;
+  background: var(--docbase-accent-hover);
+  box-shadow: none;
+}
+
+.session-list__toolbar :deep(.el-button.is-circle) {
+  color: var(--docbase-text);
+  background: var(--docbase-accent-soft);
+  border-color: var(--docbase-line);
+}
+
+.session-list__toolbar :deep(.el-button.is-circle:hover) {
+  color: var(--docbase-ink);
+  background: var(--docbase-accent-soft);
+}
+
 .session-list__items {
   min-height: 0;
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   margin: 0;
   padding: 0 2px;
   overflow: auto;
@@ -128,16 +155,16 @@ function displayTitle(session: ChatSession): string {
   position: relative;
   display: flex;
   align-items: center;
-  border-radius: 6px;
+  border-radius: 7px;
 }
 
 .session-list__items li:hover {
-  background: rgba(255, 255, 255, 0.68);
+  background: var(--docbase-accent-soft);
 }
 
 .session-list__items li.active {
-  background: #d8e9f6;
-  box-shadow: inset 3px 0 #2b78af;
+  background: var(--docbase-accent-soft);
+  box-shadow: inset 2px 0 0 var(--docbase-amber);
 }
 
 .session-list__select {
@@ -145,19 +172,27 @@ function displayTitle(session: ChatSession): string {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
   flex: 1;
-  padding: 10px 8px;
-  color: #29465e;
+  padding: 10px 9px;
+  color: var(--docbase-text);
   text-align: left;
   background: transparent;
   border: 0;
   cursor: pointer;
 }
 
+.session-list__items li.active .session-list__select {
+  color: var(--docbase-accent);
+}
+
 .session-list__chat-icon {
   grid-row: 1 / 3;
   align-self: center;
-  color: #5c7c95;
+  color: var(--docbase-muted);
   font-size: 15px;
+}
+
+.session-list__items li.active .session-list__chat-icon {
+  color: var(--docbase-amber);
 }
 
 .session-list__title,
@@ -169,14 +204,14 @@ small {
 }
 
 .session-list__title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
 small {
   margin-top: 3px;
-  color: #8396a6;
-  font-size: 10px;
+  color: var(--docbase-muted);
+  font-size: 12px;
 }
 
 .session-list__delete {
@@ -185,19 +220,38 @@ small {
 }
 
 .session-list__items li:hover .session-list__delete,
+.session-list__items li:focus-within .session-list__delete,
 .session-list__delete:focus-visible,
 .session-list__delete.is-loading {
   opacity: 1;
 }
 
+/* 触屏设备无 hover，删除按钮常显 */
+@media (hover: none) {
+  .session-list__delete {
+    opacity: 1;
+  }
+}
+
 .session-list :deep(.el-pagination) {
   justify-content: center;
+  --el-pagination-hover-color: var(--docbase-amber);
+  color: var(--docbase-muted);
+}
+
+.session-list :deep(.el-pagination .el-pager li) {
+  color: var(--docbase-text);
+}
+
+.session-list :deep(.el-pagination .el-pager li.is-active) {
+  color: var(--docbase-accent);
+  background: var(--docbase-accent-soft);
 }
 
 @media (max-width: 760px) {
   .session-list {
     border-right: 0;
-    border-bottom: 1px solid #d6e3ed;
+    border-bottom: 1px solid var(--docbase-line);
   }
 }
 </style>

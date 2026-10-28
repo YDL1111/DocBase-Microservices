@@ -128,6 +128,50 @@ async function flush() {
   await nextTick();
 }
 
+/**
+ * 关闭所有残留的可见 el-dropdown popper（模拟点击页面空白处）。
+ */
+async function closeOpenPoppers() {
+  document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  for (let i = 0; i < 20; i++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await nextTick();
+    const anyVisible = Array.from(document.body.querySelectorAll<HTMLElement>(".el-dropdown-menu__item"))
+      .some(el => el.closest<HTMLElement>(".el-popper")?.style.display !== "none");
+    if (!anyVisible) return;
+  }
+}
+
+/**
+ * 行内操作已收敛为「主操作 + 更多下拉」：
+ * 点击目标行的“更多”按钮展开 el-dropdown（popper teleport 到 body），
+ * 等待菜单项出现后按文本点击。只认当前可见 popper（隐藏 popper 带 display:none）。
+ */
+async function clickRowDropdownItem(wrapper: any, text: string, rowIndex = 0) {
+  await closeOpenPoppers();
+  const row = wrapper.findAll(".el-table__row")[rowIndex];
+  expect(row, `row ${rowIndex} 应存在`).toBeTruthy();
+  const trigger = row.findAll("button").find((b: any) => b.text().includes("更多"));
+  expect(trigger, `row ${rowIndex} 应有“更多”按钮`).toBeTruthy();
+  await trigger!.trigger("click");
+  let item: HTMLElement | undefined;
+  for (let i = 0; i < 30 && !item; i++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await nextTick();
+    item = Array.from(
+      document.body.querySelectorAll<HTMLElement>(".el-dropdown-menu__item")
+    ).find(el => {
+      // 只认当前可见 popper 中的菜单项（隐藏的 popper 带 display:none 内联样式）
+      const popper = el.closest<HTMLElement>(".el-popper");
+      return popper?.style.display !== "none" && el.textContent?.includes(text);
+    });
+  }
+  expect(item, `下拉项“${text}”应出现`).toBeTruthy();
+  item!.click();
+  await flush();
+}
+
 function sampleUser(id: number, status = 1) {
   return {
     userId: id,
@@ -146,9 +190,12 @@ function sampleUser(id: number, status = 1) {
 describe("system user manage page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // mockReset 清除上一个用例留下的 mockImplementation（clearAllMocks 只清调用记录）
+    hasPermission.mockReset().mockReturnValue(true);
     confirmMock.mockReset().mockResolvedValue(undefined); // 默认确认通过
-    hasPermission.mockReturnValue(true);
     listUsers.mockResolvedValue(result([sampleUser(1), sampleUser(2)]));
+    // 清理上个用例残留在 body 中的 el-dropdown popper（teleport 内容不随 wrapper 回收）
+    document.body.innerHTML = "";
   });
 
   it("挂载后应请求用户列表（current=1, size=10）", async () => {
@@ -173,10 +220,15 @@ describe("system user manage page", () => {
     getUserRoles.mockResolvedValueOnce([7]);
     const wrapper = mountList();
     await flush();
-    const button = wrapper.findAll('button').find(b => b.text() === '分配角色');
-    await button!.trigger('click');
-    await flush();
-    const select = wrapper.findAllComponents({ name: 'ElSelect' }).find(s => s.props('multiple'));
+    await clickRowDropdownItem(wrapper, '分配角色');
+    // 等待角色查询完成、对话框内容（ElSelect）渲染
+    let select: any;
+    for (let i = 0; i < 30 && !select; i++) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      await nextTick();
+      select = wrapper.findAllComponents({ name: 'ElSelect' }).find(s => s.props('multiple'));
+    }
+    expect(select, '角色多选框应渲染').toBeTruthy();
     expect(select!.props('modelValue')).toEqual([7]);
     select!.vm.$emit('update:modelValue', [8]);
     await nextTick();
@@ -192,37 +244,35 @@ describe("system user manage page", () => {
     confirmMock.mockRejectedValueOnce(new Error("cancel"));
     const wrapper = mountList();
     await flush();
-    const deleteBtn = wrapper.findAll("button").find(b => b.text().includes("删除"));
-    expect(deleteBtn).toBeTruthy();
-    await deleteBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "删除用户");
     await flush();
     expect(deleteUser).not.toHaveBeenCalled();
     expect(listUsers).toHaveBeenCalledOnce(); // 仅初始加载
+    wrapper.unmount();
   });
 
   it("删除成功：confirm 通过后调用 deleteUser 并刷新列表", async () => {
     deleteUser.mockResolvedValue(undefined);
     const wrapper = mountList();
     await flush();
-    const deleteBtn = wrapper.findAll("button").find(b => b.text().includes("删除"));
-    await deleteBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "删除用户");
     await flush();
     expect(deleteUser).toHaveBeenCalledWith(1);
     expect(messages.success).toHaveBeenCalledWith("删除成功");
     // 初始加载 + 删除后刷新 = 2 次
     expect(listUsers).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
   });
 
   it("启停操作：confirm 通过后调用 changeUserStatus（启用→停用）", async () => {
     changeUserStatus.mockResolvedValue(undefined);
     const wrapper = mountList();
     await flush();
-    // 第一个用户 status=1(启用) → 按钮为"停用"，目标 status=0
-    const statusBtn = wrapper.findAll("button").find(b => b.text().includes("停用"));
-    expect(statusBtn).toBeTruthy();
-    await statusBtn!.trigger("click");
+    // 第一个用户 status=1(启用) → 菜单项为"停用账号"，目标 status=0
+    await clickRowDropdownItem(wrapper, "停用账号");
     await flush();
     expect(changeUserStatus).toHaveBeenCalledWith(1, 0);
+    wrapper.unmount();
   });
 
   it("异步乱序：后发先至的旧响应应被 requestSeq 丢弃", async () => {

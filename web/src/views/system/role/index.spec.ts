@@ -32,7 +32,8 @@ const {
     error: vi.fn(),
     warning: vi.fn(),
     info: vi.fn(),
-    confirm: (...args: unknown[]) => confirmMock(...args)
+    confirm: (...args: unknown[]) => confirmMock(...args),
+    confirmDanger: (...args: unknown[]) => confirmMock(...args)
   },
   hasPermission: vi.fn()
 }));
@@ -251,8 +252,7 @@ function menuTreeData() {
 async function openMenuDialogReady(wrapper: ReturnType<typeof mount>, ids = [3]) {
   listMenuTree.mockResolvedValue(menuTreeData());
   getRoleMenuIds.mockResolvedValue(ids);
-  const menuBtn = wrapper.findAll("button").find(b => b.text().includes("分配菜单"));
-  await menuBtn!.trigger("click");
+  await clickRowDropdownItem(wrapper, "分配菜单权限");
   await flush();
 }
 
@@ -264,6 +264,50 @@ async function flush() {
   await nextTick();
   await Promise.resolve();
   await nextTick();
+}
+
+/** 关闭所有残留的可见 el-dropdown popper（模拟点击页面空白处） */
+async function closeOpenPoppers() {
+  document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  for (let i = 0; i < 20; i++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await nextTick();
+    const anyVisible = Array.from(document.body.querySelectorAll<HTMLElement>(".el-dropdown-menu__item"))
+      .some(el => el.closest<HTMLElement>(".el-popper")?.style.display !== "none");
+    if (!anyVisible) return;
+  }
+}
+
+/**
+ * 行内操作已收敛为「主操作 + 更多下拉」：
+ * 点击目标行的“更多”按钮展开 el-dropdown（popper teleport 到 body），
+ * 等待菜单项出现后按文本点击。只认当前可见 popper（隐藏 popper 带 display:none）。
+ */
+async function clickRowDropdownItem(wrapper: any, text: string, rowIndex = 0) {
+  const findItem = () =>
+    Array.from(document.body.querySelectorAll<HTMLElement>(".el-dropdown-menu__item"))
+      .find(el => {
+        const popper = el.closest<HTMLElement>(".el-popper");
+        return popper?.style.display !== "none" && el.textContent?.includes(text);
+      });
+
+  // 先关闭可能残留的 popper，确保本次点击的是目标行的触发器
+  await closeOpenPoppers();
+  const row = wrapper.findAll(".el-table__row")[rowIndex];
+  expect(row, `row ${rowIndex} 应存在`).toBeTruthy();
+  const trigger = row.findAll("button").find((b: any) => b.text().includes("更多"));
+  expect(trigger, `row ${rowIndex} 应有“更多”按钮`).toBeTruthy();
+  await trigger!.trigger("click");
+  let item: HTMLElement | undefined;
+  for (let i = 0; i < 30 && !item; i++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await nextTick();
+    item = findItem();
+  }
+  expect(item, `下拉项“${text}”应出现`).toBeTruthy();
+  item!.click();
+  await flush();
 }
 
 function sampleRole(id: number, status = 1, isSystem = 0) {
@@ -301,9 +345,12 @@ function axiosBusinessError(status: number, code: string) {
 describe("system role manage page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // mockReset 清除上一个用例留下的 mockImplementation（clearAllMocks 只清调用记录）
+    hasPermission.mockReset().mockReturnValue(true);
     confirmMock.mockReset().mockResolvedValue(undefined); // 默认确认通过
-    hasPermission.mockReturnValue(true);
     listRoles.mockResolvedValue(result([sampleRole(1), sampleRole(2)]));
+    // 清理上个用例残留在 body 中的 el-dropdown popper（teleport 内容不随 wrapper 回收）
+    document.body.innerHTML = "";
   });
 
   it("挂载后应请求角色列表（current=1, size=10）", async () => {
@@ -327,73 +374,74 @@ describe("system role manage page", () => {
     confirmMock.mockRejectedValueOnce(new Error("cancel"));
     const wrapper = mountList();
     await flush();
-    const deleteBtn = wrapper.findAll("button").find(b => b.text().includes("删除"));
-    expect(deleteBtn).toBeTruthy();
-    await deleteBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "删除角色");
     await flush();
     expect(deleteRole).not.toHaveBeenCalled();
     expect(listRoles).toHaveBeenCalledOnce(); // 仅初始加载
+    wrapper.unmount();
   });
 
   it("删除成功：confirm 通过后调用 deleteRole 并刷新列表", async () => {
     deleteRole.mockResolvedValue(undefined);
     const wrapper = mountList();
     await flush();
-    const deleteBtn = wrapper.findAll("button").find(b => b.text().includes("删除"));
-    await deleteBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "删除角色");
     await flush();
     expect(deleteRole).toHaveBeenCalledWith(1, { skipGlobalErrorMessage: true });
     expect(messages.success).toHaveBeenCalledWith("删除成功");
     // 初始加载 + 删除后刷新 = 2 次
     expect(listRoles).toHaveBeenCalledTimes(2);
+    wrapper.unmount();
   });
 
   it("删除双击：confirm 弹出前已上锁，只弹一个确认框", async () => {
-    deleteRole.mockResolvedValue(undefined);
+    // confirm 挂起不返回：第一次删除流程停在确认框，operatingIds 锁保持
+    confirmMock.mockReset();
+    confirmMock.mockReturnValue(new Promise(() => {}));
     const wrapper = mountList();
     await flush();
-    const deleteBtn = wrapper.findAll("button").find(b => b.text().includes("删除"));
-    expect(deleteBtn).toBeTruthy();
-    // 快速双击：第二次点击时 operatingIds 已包含该 roleId，应被拦截
-    await deleteBtn!.trigger("click");
-    await deleteBtn!.trigger("click");
-    await flush();
-    // confirm 只被调用一次（第二次点击在弹出 confirm 前被互斥锁拦截）
+    await clickRowDropdownItem(wrapper, "删除角色");
+    // 确认框等待期间该行已上锁：“更多”触发按钮被禁用，无法再次发起删除
+    const row = wrapper.findAll(".el-table__row")[0];
+    const trigger = row.findAll("button").find(b => b.text().includes("更多"));
+    expect((trigger!.element as HTMLButtonElement).disabled).toBe(true);
+    // confirm 只被调用一次
     expect(confirmMock).toHaveBeenCalledOnce();
+    expect(deleteRole).not.toHaveBeenCalled();
+    wrapper.unmount();
   });
 
   it("启停操作：confirm 通过后调用 changeRoleStatus（启用→停用）", async () => {
     changeRoleStatus.mockResolvedValue(undefined);
     const wrapper = mountList();
     await flush();
-    // 第一个角色 status=1(启用) → 按钮为"停用"，目标 status=0
-    const statusBtn = wrapper.findAll("button").find(b => b.text().includes("停用"));
-    expect(statusBtn).toBeTruthy();
-    await statusBtn!.trigger("click");
+    // 第一个角色 status=1(启用) → 菜单项为"停用角色"，目标 status=0
+    await clickRowDropdownItem(wrapper, "停用角色");
     await flush();
     expect(changeRoleStatus).toHaveBeenCalledWith(1, 0, { skipGlobalErrorMessage: true });
+    wrapper.unmount();
   });
 
   it("ROLE_LAST_MENU_OWNER 停用失败时给出安全中文提示且保持页面状态", async () => {
     changeRoleStatus.mockRejectedValueOnce(axiosBusinessError(400, "ROLE_LAST_MENU_OWNER"));
     const wrapper = mountList();
     await flush();
-    const statusBtn = wrapper.findAll("button").find(b => b.text().includes("停用"));
-    await statusBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "停用角色");
     await flush();
     expect(messages.error).toHaveBeenCalledWith("该角色仍是某些菜单的唯一有效管理员，请先转让菜单归属");
     expect(wrapper.findAll(".el-table__row")).toHaveLength(2);
+    wrapper.unmount();
   });
 
   it("ROLE_LAST_MENU_OWNER 删除失败时不自动清空 Owner", async () => {
     deleteRole.mockRejectedValueOnce(axiosBusinessError(400, "ROLE_LAST_MENU_OWNER"));
     const wrapper = mountList();
     await flush();
-    const deleteBtn = wrapper.findAll("button").find(b => b.text().includes("删除"));
-    await deleteBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "删除角色");
     await flush();
     expect(messages.error).toHaveBeenCalledWith("该角色仍是某些菜单的唯一有效管理员，请先转让菜单归属");
     expect(assignRoleMenus).not.toHaveBeenCalled();
+    wrapper.unmount();
   });
 
   it("普通 HTTP 400/403/500 均只显示一次通用安全提示", async () => {
@@ -407,8 +455,7 @@ describe("system role manage page", () => {
       changeRoleStatus.mockRejectedValueOnce(axiosBusinessError(status, code));
       const wrapper = mountList();
       await flush();
-      const statusBtn = wrapper.findAll("button").find(b => b.text().includes("停用"));
-      await statusBtn!.trigger("click");
+      await clickRowDropdownItem(wrapper, "停用角色");
       await flush();
       expect(messages.error).toHaveBeenCalledTimes(1);
       expect(messages.error).toHaveBeenCalledWith("操作失败，请稍后重试");
@@ -598,8 +645,7 @@ describe("system role manage page", () => {
 
     const wrapper = mountList();
     await flush();
-    const menuBtn = wrapper.findAll("button").find(b => b.text().includes("分配菜单"));
-    await menuBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "分配菜单权限");
     await flush();
 
     // 加载中：确定按钮应被禁用
@@ -625,8 +671,7 @@ describe("system role manage page", () => {
 
     const wrapper = mountList();
     await flush();
-    const menuBtn = wrapper.findAll("button").find(b => b.text().includes("分配菜单"));
-    await menuBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "分配菜单权限");
     await flush();
 
     const confirmBtn = wrapper.findAll("button").find(b => b.text().includes("确定"));
@@ -645,14 +690,13 @@ describe("system role manage page", () => {
     // 第一次打开（角色 A=1）：挂起两个请求
     listMenuTree.mockImplementationOnce(() => new Promise(r => { resolveA = r; }));
     getRoleMenuIds.mockImplementationOnce(() => new Promise(r => { resolveAIds = r; }));
-    const menuBtn = wrapper.findAll("button").find(b => b.text().includes("分配菜单"));
-    await menuBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "分配菜单权限");
     await nextTick();
 
     // 立即第二次打开（角色 B=2）：立即解析
     listMenuTree.mockResolvedValueOnce(menuTreeData());
     getRoleMenuIds.mockResolvedValueOnce([3]);
-    await menuBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "分配菜单权限");
     await flush();
 
     // B 已就绪：确定按钮可用（waitFor 等待树挂载 + menuReady 置位）
@@ -701,8 +745,7 @@ describe("system role manage page", () => {
     expect(listRoles.mock.calls.length).toBe(callsBeforeUnmount);
   });
 
-  it("[P1-1] 仅缺 menu:list 时，分配菜单按钮应被移除（三权限交集）", async () => {
-    const { default: authDirective } = await import("@/directive/permission");
+  it("[P1-1] 仅缺 menu:list 时，分配菜单菜单项不出现（三权限交集）", async () => {
     // 拥有 role:update 与 role:list，但缺少 menu:list
     hasPermission.mockImplementation(
       (code: string | string[]) => {
@@ -711,10 +754,23 @@ describe("system role manage page", () => {
         return codes.every(c => held.includes(c));
       }
     );
-    const wrapper = mountList({ global: { directives: { auth: authDirective } } });
+    const wrapper = mountList();
     await flush();
-    // 分配菜单需要三权限交集，缺少 menu:list → 按钮被移除
-    expect(wrapper.findAll('[aria-hidden="true"]').some(b => b.text().includes("分配菜单"))).toBe(true);
+    // 打开行内“更多”菜单：分配菜单权限需要三权限交集，缺少 menu:list → 菜单项不渲染
+    const row = wrapper.findAll(".el-table__row")[0];
+    const trigger = row.findAll("button").find(b => b.text().includes("更多"));
+    expect(trigger, "应有“更多”按钮").toBeTruthy();
+    await trigger!.trigger("click");
+    let items: HTMLElement[] = [];
+    for (let i = 0; i < 30 && items.length === 0; i++) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      await nextTick();
+      items = Array.from(document.body.querySelectorAll<HTMLElement>(".el-dropdown-menu__item"))
+        .filter(el => el.closest<HTMLElement>(".el-popper")?.style.display !== "none");
+    }
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.some(el => el.textContent?.includes("分配菜单"))).toBe(false);
+    wrapper.unmount();
   });
 
   // ---------------------------------------------------------------------------
@@ -729,8 +785,7 @@ describe("system role manage page", () => {
       await flush();
       listMenuTree.mockResolvedValue(menuTreeData());
       getRoleMenuIds.mockResolvedValue([3]);
-      const menuBtn = wrapper.findAll("button").find(b => b.text().includes("分配菜单"));
-      await menuBtn!.trigger("click");
+      await clickRowDropdownItem(wrapper, "分配菜单权限");
       await flush();
 
       const confirmBtn = wrapper.findAll("button").find(b => b.text().includes("确定"));

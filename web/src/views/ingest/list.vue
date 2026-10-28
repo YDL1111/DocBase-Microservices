@@ -9,7 +9,7 @@
  *  - 该页面定位为管理页面，不宣称普通用户只能看到自己的任务；
  *  - 后端没有 SSE/WebSocket，使用有界轮询刷新活跃任务。
  */
-import { onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessageBox } from "element-plus";
 import { Refresh } from "@element-plus/icons-vue";
@@ -37,6 +37,8 @@ const router = useRouter();
 const loading = ref(false);
 const tasks = ref<IngestTask[]>([]);
 const total = ref(0);
+const activeCount = computed(() => tasks.value.filter(task => isActiveStatus(task.status)).length);
+const failedCount = computed(() => tasks.value.filter(task => ["FAILED", "DEAD"].includes(task.status)).length);
 
 /**
  * 请求序号。每次分页/筛选变化时递增，
@@ -226,8 +228,8 @@ async function handleRetry(taskId: number) {
 async function handleCancel(taskId: number) {
   if (operatingIds.value.has(taskId)) return;
   try {
-    await ElMessageBox.confirm("确定取消该任务吗？", "取消确认", {
-      type: "warning"
+    await message.confirmDanger("确定取消该任务吗？取消后需要重新发起导入。", "取消任务", {
+      confirmButtonText: "确认取消"
     });
   } catch {
     return; // 用户取消确认
@@ -289,10 +291,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="ingest-list">
-    <div class="toolbar">
-      <h2>导入任务</h2>
-      <div class="toolbar-actions">
+  <div class="page-card ingest-list">
+    <div class="page-toolbar">
+      <div class="page-toolbar__title">
+        <h2>导入任务</h2>
+        <p>文档入库的处理进度与结果，活跃任务每 4 秒自动刷新</p>
+      </div>
+      <div class="page-toolbar__actions">
         <el-select
           v-model="filterStatus"
           placeholder="任务状态"
@@ -310,39 +315,46 @@ onUnmounted(() => {
         </el-select>
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="handleReset">重置</el-button>
-        <el-button :icon="Refresh" circle @click="fetchTasks('user')" />
+        <el-button :icon="Refresh" circle aria-label="刷新任务列表" title="刷新" @click="fetchTasks('user')" />
       </div>
     </div>
+
+    <section class="ingest-metrics" aria-label="任务概况">
+      <div class="metric-item"><span>任务总量</span><strong>{{ total }}</strong><small>全部处理任务</small></div>
+      <div class="metric-item active"><span>当前活跃</span><strong>{{ activeCount }}</strong><small>本页正在处理</small></div>
+      <div class="metric-item attention"><span>需要关注</span><strong>{{ failedCount }}</strong><small>本页失败任务</small></div>
+      <div class="pipeline-note"><i /><span>处理流水线</span><strong>{{ activeCount ? "运行中" : "待命" }}</strong></div>
+    </section>
 
     <!-- 空状态 -->
     <el-empty
       v-if="!loading && tasks.length === 0"
-      description="暂无导入任务"
+      :description="filterStatus ? '没有符合筛选条件的任务' : '暂无导入任务'"
     />
 
     <!-- 任务列表 -->
     <el-table v-loading="loading" :data="tasks" stripe>
-      <el-table-column prop="id" label="ID" width="80" />
+      <el-table-column prop="id" label="ID" width="70" />
       <el-table-column prop="fileName" label="文件名" min-width="180" show-overflow-tooltip />
-      <el-table-column label="类型" width="100">
+      <el-table-column label="类型" width="90">
         <template #default="{ row }">
           {{ ingestTaskTypeLabel(row.taskType) }}
         </template>
       </el-table-column>
-      <el-table-column prop="knowledgeBaseId" label="知识库 ID" width="120" />
-      <el-table-column prop="documentId" label="文档 ID" width="120" />
-      <el-table-column label="状态" width="120">
+      <el-table-column prop="knowledgeBaseId" label="知识库 ID" width="100" />
+      <el-table-column prop="documentId" label="文档 ID" width="100" />
+      <el-table-column label="状态" width="105">
         <template #default="{ row }">
           <el-tag :type="ingestTaskStatusTagType(row.status)">
             {{ ingestTaskStatusLabel(row.status) }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="attemptCount" label="重试次数" width="100" />
-      <el-table-column label="创建时间" width="190">
+      <el-table-column prop="attemptCount" label="重试次数" width="80" />
+      <el-table-column label="创建时间" width="170">
         <template #default="{ row }">{{ formatBackendDateTime(row.createdAt) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column label="操作" width="170" fixed="right">
         <template #default="{ row }">
           <el-button
             v-auth="'ingest:task:view'"
@@ -379,7 +391,7 @@ onUnmounted(() => {
     <!-- 分页 -->
     <el-pagination
       v-if="total > 0"
-      class="pagination"
+      class="table-pagination"
       layout="total, sizes, prev, pager, next, jumper"
       :total="total"
       :current-page="pagination.current"
@@ -392,31 +404,18 @@ onUnmounted(() => {
 </template>
 
 <style lang="scss" scoped>
-.ingest-list {
-  background: #fff;
-  padding: 16px;
-  border-radius: 4px;
-}
-
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-
-  h2 {
-    margin: 0;
-    font-size: 18px;
-  }
-}
-
-.toolbar-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.pagination {
-  margin-top: 16px;
-  justify-content: flex-end;
-}
+.ingest-list { min-height: 320px; }
+.ingest-metrics { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)) minmax(190px, 1.3fr); gap: 12px; margin-bottom: 24px; }
+.metric-item { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 16px 18px; overflow: hidden; background: var(--docbase-surface-soft); border: 1px solid var(--docbase-line-soft); border-radius: 13px; }
+.metric-item > span { color: var(--docbase-muted); font-size: 13px; }
+.metric-item strong { grid-row: span 2; color: var(--docbase-ink); font-size: 28px; font-weight: 650; line-height: 1.2; }
+.metric-item small { color: var(--docbase-subtle); font-size: 12px; }
+.metric-item.active strong { color: var(--docbase-accent); }
+.metric-item.attention strong { color: var(--docbase-danger); }
+.pipeline-note { display: flex; flex-direction: column; justify-content: center; padding: 16px 20px 16px 43px; color: var(--docbase-muted); background: var(--docbase-accent-soft); border: 1px solid var(--docbase-line); border-radius: 13px; }
+.pipeline-note i { position: absolute; margin-left: -23px; margin-top: 5px; width: 7px; height: 7px; background: var(--docbase-amber); border-radius: 50%; box-shadow: 0 0 0 5px rgba(23, 94, 76, .10); }
+.pipeline-note span { font-size: 12px; letter-spacing: 1px; }
+.pipeline-note strong { margin-top: 3px; color: var(--docbase-accent); font-size: 15px; font-weight: 600; }
+@media (max-width: 1000px) { .ingest-metrics { grid-template-columns: repeat(3, 1fr); } .pipeline-note { grid-column: 1 / -1; } }
+@media (max-width: 600px) { .ingest-metrics { grid-template-columns: 1fr; } .pipeline-note { grid-column: auto; } }
 </style>

@@ -49,6 +49,7 @@ function fullMenuTree(): MenuNode[] {
     ]),
     menu("AiChat", "/ai/chat", [menu("AiChatQuery", "", [], 1)]),
     menu("SystemManage", "/system", [
+      menu("SystemOrganization", "/system/organizations"),
       menu("SystemUser", "/system/users"),
       menu("SystemRole", "/system/roles"),
       menu("SystemMenu", "/system/menus")
@@ -79,24 +80,26 @@ afterEach(() => {
 });
 
 describe("首页工作台权限入口", () => {
-  it("管理员菜单树展示全部六个真实功能入口", () => {
+  it("管理员菜单树展示全部授权功能入口及检索预览", () => {
     permissionState.menus = fullMenuTree();
 
     const wrapper = mountHome();
     const links = wrapper.findAll(".entry-card");
 
-    expect(links).toHaveLength(6);
+    expect(links).toHaveLength(8);
     expect(links.map(link => link.attributes("href"))).toEqual([
+      "/search",
       "/knowledge",
       "/ingest/tasks",
       "/ai/chat",
+      "/system/organizations",
       "/system/users",
       "/system/roles",
       "/system/menus"
     ]);
-    expect(wrapper.text()).toContain("业务工作区");
-    expect(wrapper.text()).toContain("系统治理");
-    expect(wrapper.text()).toContain("6可用模块");
+    expect(wrapper.text()).toContain("文档与知识");
+    expect(wrapper.text()).toContain("权限管理");
+    expect(wrapper.text()).toContain("8可用模块");
   });
 
   it("只展示 IAM 已下发页面，按钮权限不会变成入口", () => {
@@ -113,28 +116,30 @@ describe("首页工作台权限入口", () => {
     const links = wrapper.findAll(".entry-card");
 
     expect(links.map(link => link.attributes("href"))).toEqual([
+      "/search",
       "/knowledge",
       "/ai/chat"
     ]);
-    expect(wrapper.text()).not.toContain("系统治理");
+    expect(wrapper.text()).not.toContain("权限管理");
     expect(wrapper.text()).not.toContain("用户管理");
   });
 
   it("系统入口使用 IAM 真实路径而不是固定复数路径", () => {
     permissionState.menus = [menu("SystemManage", "/system", [
-      menu("SystemUser", "/system/user"), menu("SystemRole", "/system/role"), menu("SystemMenu", "/system/menu")
+      menu("SystemOrganization", "/system/organization"), menu("SystemUser", "/system/user"), menu("SystemRole", "/system/role"), menu("SystemMenu", "/system/menu")
     ])];
     const wrapper = mountHome();
     expect(wrapper.findAll(".entry-card").map(link => link.attributes("href")))
-      .toEqual(["/system/user", "/system/role", "/system/menu"]);
+      .toEqual(["/search", "/system/organization", "/system/user", "/system/role", "/system/menu"]);
   });
 
-  it("没有页面菜单时显示明确空状态", () => {
+  it("没有业务权限时仅显示本地检索预览", () => {
     permissionState.menus = [menu("OnlyAction", "", [], 1)];
 
     const wrapper = mountHome();
 
-    expect(wrapper.findAll(".entry-card")).toHaveLength(0);
-    expect(wrapper.text()).toContain("当前账号暂无可用业务入口");
+    expect(wrapper.findAll(".entry-card")).toHaveLength(1);
+    expect(wrapper.find(".entry-card").attributes("href")).toBe("/search");
+    expect(wrapper.text()).not.toContain("组织管理");
   });
 });

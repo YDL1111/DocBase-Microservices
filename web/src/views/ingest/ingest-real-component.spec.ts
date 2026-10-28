@@ -29,7 +29,8 @@ vi.mock("@/utils/message", () => ({
     success: vi.fn(),
     error: vi.fn(),
     warning: vi.fn(),
-    info: vi.fn()
+    info: vi.fn(),
+    confirmDanger: vi.fn().mockResolvedValue(undefined)
   }
 }));
 
@@ -521,7 +522,7 @@ describe("pending-refresh: 阻塞旧轮询 + 用户查询不丢失", () => {
     await flushPromises();
 
     const searchBtn = wrapper
-      .findAll(".toolbar-actions button")
+      .findAll(".page-toolbar__actions button")
       .find(b => b.text().includes("查询"));
     await searchBtn!.trigger("click");
     await flushPromises();
@@ -603,7 +604,7 @@ describe("pending-refresh: retry/cancel 后刷新不丢失", () => {
     expect(listIngestTasksMock).toHaveBeenCalledTimes(1);
 
     // 手动刷新 → 第 2 次请求阻塞（此时无轮询，终态）
-    const refreshBtn = wrapper.findAll(".toolbar-actions button").at(-1)!;
+    const refreshBtn = wrapper.findAll(".page-toolbar__actions button").at(-1)!;
     await refreshBtn.trigger("click");
     await flushPromises();
     expect(listIngestTasksMock).toHaveBeenCalledTimes(2); // 阻塞中
@@ -653,7 +654,7 @@ describe("pending-refresh: 多次用户操作合并为一次最新请求", () =>
     await flushPromises();
 
     const searchBtn = wrapper
-      .findAll(".toolbar-actions button")
+      .findAll(".page-toolbar__actions button")
       .find(b => b.text().includes("查询"));
     await searchBtn!.trigger("click");
     await flushPromises();
@@ -695,7 +696,7 @@ describe("pending-refresh: 组件卸载后不补发请求也不重新注册轮�
     expect(listIngestTasksMock).toHaveBeenCalledTimes(2); // 轮询阻塞
 
     // 用户触发查询 → 记录 pending
-    const refreshBtn = wrapper.findAll(".toolbar-actions button").at(-1)!;
+    const refreshBtn = wrapper.findAll(".page-toolbar__actions button").at(-1)!;
     await refreshBtn.trigger("click");
     await flushPromises();
     expect(listIngestTasksMock).toHaveBeenCalledTimes(2);
@@ -835,7 +836,7 @@ describe("P1-3: 重置后再选择 FAILED，筛选请求正常发出（无状态
     const initialCalls = listIngestTasksMock.mock.calls.length;
 
     const resetBtn = wrapper
-      .findAll(".toolbar-actions button")
+      .findAll(".page-toolbar__actions button")
       .find(b => b.text().includes("重置"));
     await resetBtn!.trigger("click");
     await flushPromises();
@@ -848,7 +849,7 @@ describe("P1-3: 重置后再选择 FAILED，筛选请求正常发出（无状态
     await flushPromises();
 
     const searchBtn = wrapper
-      .findAll(".toolbar-actions button")
+      .findAll(".page-toolbar__actions button")
       .find(b => b.text().includes("查询"));
     await searchBtn!.trigger("click");
     await flushPromises();

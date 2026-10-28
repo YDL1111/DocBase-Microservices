@@ -32,7 +32,8 @@ const {
     error: vi.fn(),
     warning: vi.fn(),
     info: vi.fn(),
-    confirm: (...args: unknown[]) => confirmMock(...args)
+    confirm: (...args: unknown[]) => confirmMock(...args),
+    confirmDanger: (...args: unknown[]) => confirmMock(...args)
   }
 }));
 
@@ -371,6 +372,50 @@ async function flush() {
   await nextTick();
 }
 
+/** 关闭所有残留的可见 el-dropdown popper（模拟点击页面空白处） */
+async function closeOpenPoppers() {
+  document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  for (let i = 0; i < 20; i++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await nextTick();
+    const anyVisible = Array.from(document.body.querySelectorAll<HTMLElement>(".el-dropdown-menu__item"))
+      .some(el => el.closest<HTMLElement>(".el-popper")?.style.display !== "none");
+    if (!anyVisible) return;
+  }
+}
+
+/**
+ * 行内操作已收敛为「主操作（详情/编辑）+ 更多下拉」：
+ * 点击目标行的“更多”按钮展开 el-dropdown（popper teleport 到 body），
+ * 等待菜单项出现后按文本点击。只认当前可见 popper（隐藏 popper 带 display:none）。
+ */
+async function clickRowDropdownItem(wrapper: any, text: string, rowMenuName: string) {
+  const findItem = () =>
+    Array.from(document.body.querySelectorAll<HTMLElement>(".el-dropdown-menu__item"))
+      .find(el => {
+        const popper = el.closest<HTMLElement>(".el-popper");
+        return popper?.style.display !== "none" && el.textContent?.includes(text);
+      });
+
+  // 先关闭可能残留的其他行 popper，确保本次点击的是目标行的触发器
+  await closeOpenPoppers();
+  const row = wrapper.findAll(".el-table__row").find((r: any) => r.text().includes(rowMenuName));
+  expect(row, `行“${rowMenuName}”应存在`).toBeTruthy();
+  const trigger = row!.findAll("button").find((b: any) => b.text().includes("更多"));
+  expect(trigger, `行“${rowMenuName}”应有“更多”按钮`).toBeTruthy();
+  await trigger!.trigger("click");
+  let item: HTMLElement | undefined;
+  for (let i = 0; i < 30 && !item; i++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await nextTick();
+    item = findItem();
+  }
+  expect(item, `下拉项“${text}”应出现`).toBeTruthy();
+  item!.click();
+  await flush();
+}
+
 /** 从树节点构造完整 SysMenu 详情（编辑对话框打开时 GET /{menuId} 的返回） */
 function menuDetail(menuId: number): Record<string, unknown> {
   const find = (nodes: any[]): any => {
@@ -516,9 +561,7 @@ async function openEditDialog(wrapper: ReturnType<typeof mount>, rowMenuName: st
 }
 
 async function openOwnerDialogFor(wrapper: ReturnType<typeof mount>, rowMenuName: string) {
-  const row = wrapper.findAll(".el-table__row").find(r => r.text().includes(rowMenuName));
-  const button = row!.findAll("button").find(b => b.text().includes("管理归属"));
-  await button!.trigger("click");
+  await clickRowDropdownItem(wrapper, "管理归属", rowMenuName);
   await flush();
   await flush();
 }
@@ -543,6 +586,8 @@ describe("system menu manage page", () => {
     listAllRoles.mockResolvedValue(roleData());
     // 编辑对话框打开时 GET /{menuId} 返回完整详情（默认按树节点构造，含 remark）
     getMenu.mockImplementation((menuId: number) => Promise.resolve(menuDetail(menuId)));
+    // 清理上个用例残留在 body 中的 el-dropdown popper（teleport 内容不随 wrapper 回收）
+    document.body.innerHTML = "";
   });
 
   it("挂载后应请求全量菜单树并渲染树形行", async () => {
@@ -578,14 +623,24 @@ describe("system menu manage page", () => {
     const wrapper = mountList({ global: { directives: { auth: authDirective as any } } });
     await flush();
 
-    // 页面根需要 list 权限 → 可见；create/update/delete 均无 → 按钮全部移除
+    // 页面根需要 list 权限 → 可见；create/update 均无 → 按钮全部移除
     expect(wrapper.find(".menu-manage").exists()).toBe(true);
     expect(wrapper.findAll('[aria-hidden="true"]').some(b => b.text().includes("新建菜单"))).toBe(true);
     expect(wrapper.findAll('[aria-hidden="true"]').some(b => b.text().includes("编辑"))).toBe(true);
-    expect(wrapper.findAll('[aria-hidden="true"]').some(b => b.text().includes("停用"))).toBe(true);
-    expect(wrapper.findAll('[aria-hidden="true"]').some(b => b.text().includes("删除"))).toBe(true);
     // 详情按钮不依赖额外权限（list 已覆盖）
     expect(wrapper.findAll("button").some(b => b.text().includes("详情"))).toBe(true);
+
+    // 停用/删除已收进“更多”下拉（v-if 权限判定）：无权限时下拉项不渲染
+    const row = wrapper.findAll(".el-table__row")[0];
+    const trigger = row.findAll("button").find(b => b.text().includes("更多"));
+    expect(trigger, "应有“更多”按钮").toBeTruthy();
+    await trigger!.trigger("click");
+    await flush();
+    const visibleItems = Array.from(
+      document.body.querySelectorAll<HTMLElement>(".el-dropdown-menu__item")
+    ).filter(el => el.closest<HTMLElement>(".el-popper")?.style.display !== "none");
+    expect(visibleItems.some(el => el.textContent?.includes("停用"))).toBe(false);
+    expect(visibleItems.some(el => el.textContent?.includes("删除"))).toBe(false);
   });
 
   it("无 list 权限时整个页面应从 DOM 移除", async () => {
@@ -1045,14 +1100,13 @@ describe("system menu manage page", () => {
 
     const wrapper = mountList();
     await flush();
+    await clickRowDropdownItem(wrapper, "停用菜单", "用户管理");
+
+    // 确认等待期间该行已上锁：“更多”触发按钮被禁用，无法再次发起
     const row = wrapper.findAll(".el-table__row").find(r => r.text().includes("用户管理"));
-    const statusBtn = row!.findAll("button").find(b => b.text().includes("停用"));
-
-    await statusBtn!.trigger("click");
-    await statusBtn!.trigger("click");
-    await flush();
-
-    // 只弹一次确认（第二个点击被 operatingIds 拦截）
+    const trigger = row!.findAll("button").find(b => b.text().includes("更多"));
+    expect((trigger!.element as HTMLButtonElement).disabled).toBe(true);
+    // 只弹一次确认
     expect(confirmMock).toHaveBeenCalledTimes(1);
     expect(changeMenuStatus).not.toHaveBeenCalled();
 
@@ -1069,13 +1123,12 @@ describe("system menu manage page", () => {
 
     const wrapper = mountList();
     await flush();
+    await clickRowDropdownItem(wrapper, "删除菜单", "用户管理");
+
+    // 确认等待期间该行已上锁：“更多”触发按钮被禁用
     const row = wrapper.findAll(".el-table__row").find(r => r.text().includes("用户管理"));
-    const delBtn = row!.findAll("button").find(b => b.text().includes("删除"));
-
-    await delBtn!.trigger("click");
-    await delBtn!.trigger("click");
-    await flush();
-
+    const trigger = row!.findAll("button").find(b => b.text().includes("更多"));
+    expect((trigger!.element as HTMLButtonElement).disabled).toBe(true);
     expect(confirmMock).toHaveBeenCalledTimes(1);
     expect(deleteMenu).not.toHaveBeenCalled();
 
@@ -1091,14 +1144,12 @@ describe("system menu manage page", () => {
     confirmMock.mockRejectedValueOnce(new Error("cancel"));
     const wrapper = mountList();
     await flush();
-    const row = wrapper.findAll(".el-table__row").find(r => r.text().includes("用户管理"));
-    const statusBtn = row!.findAll("button").find(b => b.text().includes("停用"));
-    await statusBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "停用菜单", "用户管理");
     await flush();
     expect(changeMenuStatus).not.toHaveBeenCalled();
     // 锁已释放：再次点击可重新弹确认
     confirmMock.mockResolvedValueOnce(undefined);
-    await statusBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "停用菜单", "用户管理");
     await flush();
     expect(changeMenuStatus).toHaveBeenCalledTimes(1);
   });
@@ -1107,9 +1158,7 @@ describe("system menu manage page", () => {
     confirmMock.mockRejectedValueOnce(new Error("cancel"));
     const wrapper = mountList();
     await flush();
-    const row = wrapper.findAll(".el-table__row").find(r => r.text().includes("用户管理"));
-    const delBtn = row!.findAll("button").find(b => b.text().includes("删除"));
-    await delBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "删除菜单", "用户管理");
     await flush();
     expect(deleteMenu).not.toHaveBeenCalled();
   });
@@ -1226,9 +1275,7 @@ describe("system menu manage page", () => {
     await flush();
     const before = listMenuTree.mock.calls.length;
 
-    const row = wrapper.findAll(".el-table__row").find(r => r.text().includes("用户管理"));
-    const statusBtn = row!.findAll("button").find(b => b.text().includes("停用"));
-    await statusBtn!.trigger("click");
+    await clickRowDropdownItem(wrapper, "停用菜单", "用户管理");
     await flush();
 
     expect(changeMenuStatus).toHaveBeenCalledWith(3, 0);
@@ -1241,14 +1288,33 @@ describe("system menu manage page", () => {
   it("超级管理员可见管理归属，普通管理员从 DOM 中移除入口", async () => {
     const superWrapper = mountList();
     await flush();
-    expect(superWrapper.findAll("button").some(b => b.text().includes("管理归属"))).toBe(true);
+    // 管理归属收进“更多”下拉：超级管理员展开后可见（轮询等待 popper 打开）
+    const superRow = superWrapper.findAll(".el-table__row")[0];
+    await superRow.findAll("button").find(b => b.text().includes("更多"))!.trigger("click");
+    let visibleItems: HTMLElement[] = [];
+    for (let i = 0; i < 30; i++) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      await nextTick();
+      visibleItems = Array.from(document.body.querySelectorAll<HTMLElement>(".el-dropdown-menu__item"))
+        .filter(el => el.closest<HTMLElement>(".el-popper")?.style.display !== "none");
+      if (visibleItems.some(el => el.textContent?.includes("管理归属"))) break;
+    }
+    expect(visibleItems.some(el => el.textContent?.includes("管理归属"))).toBe(true);
+    superWrapper.unmount();
+    document.body.innerHTML = "";
 
     admin = false;
     grantAll = false;
     permissionSet = new Set(["system:menu:list"]);
     const ordinaryWrapper = mountList();
     await flush();
-    expect(ordinaryWrapper.findAll("button").some(b => b.text().includes("管理归属"))).toBe(false);
+    const ordinaryRow = ordinaryWrapper.findAll(".el-table__row")[0];
+    await ordinaryRow.findAll("button").find(b => b.text().includes("更多"))!.trigger("click");
+    await flush();
+    visibleItems = Array.from(document.body.querySelectorAll<HTMLElement>(".el-dropdown-menu__item"))
+      .filter(el => el.closest<HTMLElement>(".el-popper")?.style.display !== "none");
+    expect(visibleItems.some(el => el.textContent?.includes("管理归属"))).toBe(false);
+    ordinaryWrapper.unmount();
   });
 
   it("Owner 与角色列表均成功后才就绪，回显当前 Owner 且停用角色不可选择", async () => {
@@ -1289,11 +1355,9 @@ describe("system menu manage page", () => {
 
     const wrapper = mountList();
     await flush();
-    const rowA = wrapper.findAll(".el-table__row").find(r => r.text().includes("菜单管理"));
-    await rowA!.findAll("button").find(b => b.text().includes("管理归属"))!.trigger("click");
+    await openOwnerDialogFor(wrapper, "菜单管理");
     await flush();
-    const rowB = wrapper.findAll(".el-table__row").find(r => r.text().includes("用户管理"));
-    await rowB!.findAll("button").find(b => b.text().includes("管理归属"))!.trigger("click");
+    await openOwnerDialogFor(wrapper, "用户管理");
     await flush();
     expect(ownerDialog(wrapper).findAll(".owner-role-row")).toHaveLength(0);
 
@@ -1315,6 +1379,10 @@ describe("system menu manage page", () => {
     await flush();
     await openOwnerDialogFor(wrapper, "菜单管理");
     const dialog = ownerDialog(wrapper);
+    // 等待 Owner + 角色列表加载完成后渲染复选框
+    await vi.waitFor(() => {
+      expect(dialog.findAll('input[type="checkbox"]').length).toBeGreaterThanOrEqual(3);
+    });
     const checks = dialog.findAll('input[type="checkbox"]');
     await checks[2].setValue(true);
     await flush();
@@ -1335,8 +1403,8 @@ describe("system menu manage page", () => {
     await flush();
 
     const rowB = wrapper.findAll(".el-table__row").find(r => r.text().includes("用户管理"));
-    await rowB!.findAll("button").find(b => b.text().includes("管理归属"))!.trigger("click");
-    await flush();
+    expect(rowB, "行“用户管理”应存在").toBeTruthy();
+    await openOwnerDialogFor(wrapper, "用户管理");
 
     expect(getMenuOwners).toHaveBeenNthCalledWith(1, 2);
     expect(getMenuOwners).toHaveBeenNthCalledWith(2, 3);
@@ -1376,8 +1444,8 @@ describe("system menu manage page", () => {
     expect(replaceMenuOwners).toHaveBeenCalledTimes(1);
     expect(replaceMenuOwners).toHaveBeenCalledWith(2, []);
 
-    const rowB = wrapper.findAll(".el-table__row").find(r => r.text().includes("用户管理"));
-    await rowB!.findAll("button").find(b => b.text().includes("管理归属"))!.trigger("click");
+    // 提交期间（replaceMenuOwners 挂起）：点击另一行的管理归属入口不应再次发起加载
+    await clickRowDropdownItem(wrapper, "管理归属", "用户管理");
     expect(getMenuOwners).toHaveBeenCalledTimes(1);
     resolveReplace();
     await flush();
@@ -1419,8 +1487,8 @@ describe("system menu manage page", () => {
     getMenuOwners.mockReset().mockImplementationOnce(() => new Promise(resolve => { resolveOwners = resolve; }));
     const lateWrapper = mountList();
     await flush();
-    const row = lateWrapper.findAll(".el-table__row").find(r => r.text().includes("菜单管理"));
-    await row!.findAll("button").find(b => b.text().includes("管理归属"))!.trigger("click");
+    // 打开“菜单管理”行的归属对话框（飞行中挂起），随后立即卸载
+    await clickRowDropdownItem(lateWrapper, "管理归属", "菜单管理");
     lateWrapper.unmount();
     resolveOwners([13]);
     await flush();

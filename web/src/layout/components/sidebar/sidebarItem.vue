@@ -2,11 +2,13 @@
 import { computed } from "vue";
 import type { Component } from "vue";
 import {
+  Search,
   Avatar,
   ChatDotRound,
   Collection,
   Document,
-  HomeFilled,
+  House,
+  OfficeBuilding,
   Menu as MenuIcon,
   Setting,
   UploadFilled,
@@ -37,9 +39,11 @@ function resolvePath(routePath: string): string {
 function resolveIcon(menu: SidebarMenuNode): Component {
   const routeName = menu.routerName || "";
   const path = menu.path || "";
-  if (routeName === "Home") return HomeFilled;
+  if (routeName === "KnowledgeSearchPreview") return Search;
+  if (routeName === "Home") return House;
   if (routeName === "SidebarKnowledgeGroup") return Collection;
   if (routeName === "SystemManage") return Setting;
+  if (routeName === "SystemOrganization") return OfficeBuilding;
   if (routeName === "SystemUser") return User;
   if (routeName === "SystemRole") return Avatar;
   if (routeName === "SystemMenu") return MenuIcon;

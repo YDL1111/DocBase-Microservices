@@ -5,10 +5,12 @@ import type { RouteRecordRaw } from "vue-router";
 
 const Layout = () => import("@/layout/index.vue");
 
-/** 根重定向 */
+/** 品牌首页（公开访问）：登录入口与产品展示 */
 export const ROOT_ROUTE: RouteRecordRaw = {
   path: "/",
-  redirect: "/home"
+  name: "Landing",
+  component: () => import("@/views/landing/index.vue"),
+  meta: { title: "让每一份文档，成为可用的知识" }
 };
 
 /** 登录页 */
@@ -28,11 +30,12 @@ export const LOGIN_ROUTE: RouteRecordRaw = {
  * 后端菜单只返回"知识库列表"作为可见入口，详情页通过列表点击进入。
  */
 export const INNER_ROUTES: RouteRecordRaw[] = [
+  { path: "/search", name: "KnowledgeSearchPreview", component: () => import("@/views/search/index.vue"), meta: { title: "知识检索" } },
   {
     path: "/home",
     name: "Home",
     component: () => import("@/views/home/index.vue"),
-    meta: { title: "首页", affix: true }
+    meta: { title: "工作台", affix: true }
   },
   {
     path: "/knowledge/:id",
@@ -94,5 +97,5 @@ export const LAYOUT_ROUTES: RouteRecordRaw[] = [
   }
 ];
 
-/** 白名单（无需登录） */
-export const WHITE_LIST = ["/login"];
+/** 白名单（无需登录）：品牌首页与独立登录页 */
+export const WHITE_LIST = ["/", "/login"];

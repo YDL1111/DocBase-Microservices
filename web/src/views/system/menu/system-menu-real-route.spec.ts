@@ -29,7 +29,8 @@ vi.mock("@/utils/message", () => ({
     error: vi.fn(),
     warning: vi.fn(),
     info: vi.fn(),
-    confirm: vi.fn().mockResolvedValue(undefined)
+    confirm: vi.fn().mockResolvedValue(undefined),
+    confirmDanger: vi.fn().mockResolvedValue(undefined)
   }
 }));
 vi.mock("element-plus", async (importOriginal) => {

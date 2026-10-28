@@ -38,7 +38,18 @@ const rules: FormRules = {
   organizationCode: [
     { required: true, message: "请输入组织编码", trigger: "blur" },
     { pattern: /^[a-z][a-z0-9_-]{1,63}$/, message: "以小写字母开头，可使用小写字母、数字、_、-", trigger: "blur" }
-  ]
+  ],
+  sortNum: [
+    {
+      validator: (_r, v: number, cb) => {
+        if (v == null) return cb();
+        if (!Number.isInteger(v) || v < 0 || v > 9999) return cb(new Error("排序为 0-9999 的整数"));
+        return cb();
+      },
+      trigger: "change"
+    }
+  ],
+  remark: [{ max: 512, message: "备注不超过 512 个字符", trigger: "blur" }]
 };
 
 function buildTree(rows: SysOrganization[]): SysOrganization[] {
@@ -141,7 +152,10 @@ async function remove(row: SysOrganization) {
   if (operatingIds.value.has(row.organizationId)) return;
   operatingIds.value.add(row.organizationId);
   try {
-    await message.confirm(`确定删除组织“${row.organizationName}”吗？`, "删除组织");
+    await message.confirmDanger(
+      `确定删除组织“${row.organizationName}”吗？删除后不可恢复，含子组织或成员时可能被拒绝。`,
+      "删除组织"
+    );
     await deleteOrganization(row.organizationId);
     message.success("组织已删除");
     await fetchOrganizations();
@@ -176,7 +190,15 @@ onBeforeUnmount(() => { mounted = false; requestSeq++; });
       <span><i class="status-dot" /> {{ organizations.filter(item => item.status !== 1).length }} 个停用</span>
     </div>
 
-    <el-table v-loading="loading" :data="tree" row-key="organizationId" default-expand-all :tree-props="{ children: 'children' }">
+    <!-- 空状态 -->
+    <el-empty
+      v-if="!loading && tree.length === 0"
+      description="暂无组织"
+    >
+      <el-button v-auth="'system:org:create'" type="primary" :icon="Plus" @click="openCreate()">新建第一个组织</el-button>
+    </el-empty>
+
+    <el-table v-else v-loading="loading" :data="tree" row-key="organizationId" default-expand-all :tree-props="{ children: 'children' }">
       <el-table-column prop="organizationName" label="组织名称" min-width="230">
         <template #default="{ row }">
           <span class="organization-name">{{ row.organizationName }}</span>
@@ -214,16 +236,16 @@ onBeforeUnmount(() => { mounted = false; requestSeq++; });
 </template>
 
 <style scoped lang="scss">
-.organization-page { padding: 18px 20px 24px; background: #fff; border-radius: 6px; }
-.page-header { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; padding: 4px 0 18px; border-bottom:1px solid #e8edf5; }
-.page-header h2 { margin: 3px 0 5px; color:#1f2d3d; font-size:22px; font-weight:650; letter-spacing:0; }
-.eyebrow { display:flex; align-items:center; gap:6px; margin:0; color:#5479a8; font-size:11px; font-weight:700; letter-spacing:.08em; }
-.description { margin:0; color:#7a8798; font-size:13px; }
+.organization-page { padding: 20px 24px 24px; background: var(--docbase-surface); border: 1px solid var(--docbase-line-soft); border-radius: var(--docbase-radius-lg); box-shadow: var(--docbase-shadow-sm); }
+.page-header { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; padding: 4px 0 18px; border-bottom:1px solid var(--docbase-line-soft); }
+.page-header h2 { margin: 3px 0 5px; color: var(--docbase-ink); font-size:22px; font-weight:650; letter-spacing:0; }
+.eyebrow { display:flex; align-items:center; gap:6px; margin:0; color: var(--docbase-accent); font-size:11px; font-weight:700; letter-spacing:.08em; }
+.description { margin:0; color: var(--docbase-muted); font-size:13px; }
 .header-actions { display:flex; gap:8px; padding-top:10px; }
-.summary-strip { display:flex; gap:28px; padding:14px 2px; color:#667487; font-size:13px; }
-.summary-strip strong { color:#315f96; font-size:17px; }
-.status-dot { display:inline-block; width:7px; height:7px; margin-right:6px; border-radius:50%; background:#aab4c1; }
-.status-dot.active { background:#42b983; }
-.organization-name { margin-right:8px; color:#27364a; font-weight:600; }
+.summary-strip { display:flex; gap:28px; padding:14px 2px; color: var(--docbase-muted); font-size:13px; }
+.summary-strip strong { color: var(--docbase-accent); font-size:17px; }
+.status-dot { display:inline-block; width:7px; height:7px; margin-right:6px; border-radius:50%; background:var(--docbase-subtle); }
+.status-dot.active { background: var(--docbase-success); }
+.organization-name { margin-right:8px; color: var(--docbase-ink); font-weight:600; }
 @media (max-width: 760px) { .page-header { flex-direction:column; } .header-actions { width:100%; justify-content:flex-end; } .summary-strip { gap:12px; flex-wrap:wrap; } }
 </style>

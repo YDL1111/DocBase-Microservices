@@ -20,7 +20,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { isAxiosError } from "axios";
 import type { FormInstance, FormRules } from "element-plus";
-import { Plus, Edit, Delete, Refresh, View, Key } from "@element-plus/icons-vue";
+import { Plus, Edit, Refresh, View, ArrowDown } from "@element-plus/icons-vue";
 import {
   listRoles,
   getRole,
@@ -37,6 +37,7 @@ import { message } from "@/utils/message";
 import { listOrganizations } from '@/api/organization';
 import { useUserStoreHook } from '@/store/modules/user';
 const roleEditorUser = useUserStoreHook();
+const hasAuth = (perm: string | string[]) => roleEditorUser.hasPermission(perm);
 const scopeOrganizations = ref<import('@/api/types').SysOrganization[]>([]);
 const customScopeReady = ref(false);
 let scopeRequestSeq = 0;
@@ -407,10 +408,9 @@ async function handleDelete(role: SysRole) {
   operatingIds.value.add(role.roleId);
   try {
     try {
-      await message.confirm(
-        `确定删除角色"${role.roleName}"吗？删除后不可恢复。`,
-        "删除确认"
-      );
+    await message.confirmDanger(
+      `确定删除角色"${role.roleName}"吗？删除后不可恢复。`
+    );
     } catch {
       return; // 用户取消确认，由 finally 统一释放锁
     }
@@ -426,6 +426,13 @@ async function handleDelete(role: SysRole) {
   } finally {
     operatingIds.value.delete(role.roleId);
   }
+}
+
+/** "更多"下拉菜单命令分发 */
+function handleRowCommand(command: string, role: SysRole) {
+  if (command === "assign-menus") openMenuDialog(role);
+  else if (command === "toggle-status") handleStatusChange(role);
+  else if (command === "delete") handleDelete(role);
 }
 
 /** 最后 Owner 保护不泄露后端细节；其余错误保留通用、安全提示。 */
@@ -620,21 +627,25 @@ onMounted(() => {
 </script>
 
 <template>
-  <div v-auth="'system:role:list'" class="role-manage">
+  <div v-auth="'system:role:list'" class="page-card role-manage">
     <!-- 工具栏 -->
-    <div class="toolbar">
-      <h2>角色管理</h2>
-      <div class="toolbar-actions">
+    <div class="page-toolbar">
+      <div class="page-toolbar__title">
+        <h2>角色管理</h2>
+        <p>定义角色、数据范围与菜单权限，控制用户能力边界</p>
+      </div>
+      <div class="page-toolbar__actions">
         <el-input
           v-model="filterRoleName"
-          placeholder="角色名称"
+          placeholder="按角色名称搜索"
           clearable
           style="width: 200px"
           @keyup.enter="handleSearch"
+          @clear="handleSearch"
         />
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="handleResetFilter">重置</el-button>
-        <el-button :icon="Refresh" circle aria-label="刷新角色列表" @click="fetchRoles('user')" />
+        <el-button :icon="Refresh" circle aria-label="刷新角色列表" title="刷新" @click="fetchRoles('user')" />
         <el-button
           v-auth="'system:role:create'"
           type="primary"
@@ -647,7 +658,20 @@ onMounted(() => {
     </div>
 
     <!-- 空状态 -->
-    <el-empty v-if="!loading && roles.length === 0" description="暂无角色" />
+    <el-empty
+      v-if="!loading && roles.length === 0"
+      :description="filterRoleName ? `没有找到名称包含“${filterRoleName}”的角色` : '暂无角色'"
+    >
+      <el-button
+        v-if="!filterRoleName"
+        v-auth="'system:role:create'"
+        type="primary"
+        :icon="Plus"
+        @click="openCreateDialog"
+      >
+        新建第一个角色
+      </el-button>
+    </el-empty>
 
     <!-- 角色列表 -->
     <el-table v-loading="loading" :data="roles" stripe style="width: 100%">
@@ -673,7 +697,7 @@ onMounted(() => {
         </template>
       </el-table-column>
       <el-table-column prop="createTime" label="创建时间" width="180" />
-      <el-table-column label="操作" width="420" fixed="right">
+      <el-table-column label="操作" width="230" fixed="right">
         <template #default="scope">
           <template v-if="scope?.row">
             <el-button
@@ -694,34 +718,43 @@ onMounted(() => {
             >
               编辑
             </el-button>
-            <el-button
-              v-auth="['system:role:update', 'system:role:list', 'system:menu:list']"
-              link
-              type="primary"
-              :icon="Key"
-              @click="openMenuDialog(scope.row)"
+            <el-dropdown
+              trigger="click"
+              @command="(cmd: string) => handleRowCommand(cmd, scope.row)"
             >
-              分配菜单权限
-            </el-button>
-            <el-button
-              v-auth="'system:role:update'"
-              link
-              :type="scope.row.status === RoleStatus.ENABLED ? 'warning' : 'success'"
-              :disabled="operatingIds.has(scope.row.roleId)"
-              @click="handleStatusChange(scope.row)"
-            >
-              {{ scope.row.status === RoleStatus.ENABLED ? "停用" : "启用" }}
-            </el-button>
-            <el-button
-              v-auth="'system:role:delete'"
-              link
-              type="danger"
-              :icon="Delete"
-              :disabled="operatingIds.has(scope.row.roleId)"
-              @click="handleDelete(scope.row)"
-            >
-              删除
-            </el-button>
+              <el-button
+                link
+                type="primary"
+                :disabled="operatingIds.has(scope.row.roleId)"
+              >
+                更多<el-icon><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item
+                    v-if="hasAuth(['system:role:update', 'system:role:list', 'system:menu:list'])"
+                    command="assign-menus"
+                  >
+                    分配菜单权限
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    v-if="hasAuth('system:role:update')"
+                    command="toggle-status"
+                    :disabled="operatingIds.has(scope.row.roleId)"
+                  >
+                    {{ scope.row.status === RoleStatus.ENABLED ? "停用角色" : "启用角色" }}
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    v-if="hasAuth('system:role:delete')"
+                    command="delete"
+                    divided
+                    class="dropdown-item-danger"
+                  >
+                    删除角色
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </template>
       </el-table-column>
@@ -730,7 +763,7 @@ onMounted(() => {
     <!-- 分页 -->
     <el-pagination
       v-if="total > 0"
-      class="pagination"
+      class="table-pagination"
       layout="total, sizes, prev, pager, next, jumper"
       :total="total"
       :current-page="pagination.current"
@@ -883,38 +916,47 @@ onMounted(() => {
 
 <style lang="scss" scoped>
 .role-manage {
-  background: #fff;
-  padding: 16px;
-  border-radius: 4px;
-}
-
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-
-  h2 {
-    margin: 0;
-    font-size: 18px;
-  }
-}
-
-.toolbar-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.pagination {
-  margin-top: 16px;
-  justify-content: flex-end;
+  min-height: 320px;
 }
 
 .menu-loading {
   padding: 16px;
 }
-.menu-permission-toolbar { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:12px; padding:12px 14px; background:#f6f9fd; border:1px solid #e4ebf4; border-radius:6px; }
-.menu-permission-toolbar strong { display:block; color:#315f96; font-size:14px; }
-.menu-permission-toolbar span { display:block; margin-top:3px; color:#7a8798; font-size:12px; }
-.menu-tools { display:flex; flex-shrink:0; }
+
+.menu-permission-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  background: var(--docbase-accent-soft);
+  border: 1px solid var(--docbase-line-soft);
+  border-radius: var(--docbase-radius-sm);
+}
+
+.menu-permission-toolbar strong {
+  display: block;
+  color: var(--docbase-ink);
+  font-size: 14px;
+}
+
+.menu-permission-toolbar span {
+  display: block;
+  margin-top: 3px;
+  color: var(--docbase-subtle);
+  font-size: 13px;
+}
+
+.menu-tools {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.scope-help {
+  margin: -6px 0 16px 90px;
+  color: var(--docbase-subtle);
+  font-size: 13px;
+  line-height: 1.5;
+}
 </style>

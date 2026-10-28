@@ -11,7 +11,7 @@
  */
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ArrowLeft } from "@element-plus/icons-vue";
+import { ArrowLeft, Collection } from "@element-plus/icons-vue";
 import { getKnowledgeBase } from "@/api/knowledge";
 import { useKnowledgeStoreHook } from "@/store/modules/knowledge";
 import { message } from "@/utils/message";
@@ -40,6 +40,13 @@ const knowledgeBaseId = computed<number | null>(() => {
 
 const currentTab = ref("overview");
 const loading = ref(false);
+
+const visibilityMeta = computed(() => {
+  const value = knowledgeStore.currentBase?.visibility;
+  if (value === 3) return { label: "公开", type: "success" as const };
+  if (value === 2) return { label: "部门可见", type: "warning" as const };
+  return { label: "私有", type: "info" as const };
+});
 
 async function loadBaseInfo() {
   if (knowledgeBaseId.value === null) {
@@ -91,65 +98,68 @@ watch(
 
 <template>
   <div class="knowledge-detail">
-    <!-- 无效 ID 不渲染子组件 -->
     <div v-if="knowledgeBaseId === null" class="invalid-id">
       <el-result icon="error" title="404" sub-title="无效的知识库 ID" />
     </div>
 
     <div v-else v-loading="loading" class="detail-container">
-      <div v-if="knowledgeStore.currentBase" class="detail-header">
-        <el-button class="back-button" link :icon="ArrowLeft" @click="router.push('/knowledge')">返回知识库列表</el-button>
-        <div>
-          <h2>{{ knowledgeStore.currentBase.name }}</h2>
-          <p v-if="knowledgeStore.currentBase.description" class="description">
-            {{ knowledgeStore.currentBase.description }}
-          </p>
+      <button class="back-button" type="button" @click="router.push('/knowledge')">
+        <el-icon><ArrowLeft /></el-icon> 返回知识库
+      </button>
+      <header v-if="knowledgeStore.currentBase" class="detail-header">
+        <div class="detail-brand"><el-icon><Collection /></el-icon></div>
+        <div class="detail-title">
+          <span class="detail-eyebrow">KNOWLEDGE WORKSPACE</span>
+          <div class="detail-title__row">
+            <h1>{{ knowledgeStore.currentBase.name }}</h1>
+            <el-tag :type="visibilityMeta.type" effect="light">{{ visibilityMeta.label }}</el-tag>
+          </div>
+          <p class="description">{{ knowledgeStore.currentBase.description || "管理这个知识空间中的文档、分类与协作成员。" }}</p>
         </div>
-      </div>
+        <span class="detail-id">SPACE / {{ knowledgeBaseId }}</span>
+      </header>
 
-      <el-tabs v-model="currentTab" class="detail-tabs">
-        <el-tab-pane label="概览" name="overview">
-          <DetailOverview :knowledge-base-id="knowledgeBaseId" />
-        </el-tab-pane>
-        <el-tab-pane label="成员" name="members">
-          <DetailMembers :knowledge-base-id="knowledgeBaseId" />
-        </el-tab-pane>
-        <el-tab-pane label="文档分类" name="folders">
-          <DetailFolders :knowledge-base-id="knowledgeBaseId" />
-        </el-tab-pane>
-        <el-tab-pane label="文档" name="documents">
-          <DetailDocuments :knowledge-base-id="knowledgeBaseId" />
-        </el-tab-pane>
-      </el-tabs>
+      <div class="detail-workspace">
+        <el-tabs v-model="currentTab" class="detail-tabs">
+          <el-tab-pane label="概览" name="overview"><DetailOverview :knowledge-base-id="knowledgeBaseId" /></el-tab-pane>
+          <el-tab-pane label="文档" name="documents"><DetailDocuments :knowledge-base-id="knowledgeBaseId" /></el-tab-pane>
+          <el-tab-pane label="文档分类" name="folders"><DetailFolders :knowledge-base-id="knowledgeBaseId" /></el-tab-pane>
+          <el-tab-pane label="成员协作" name="members"><DetailMembers :knowledge-base-id="knowledgeBaseId" /></el-tab-pane>
+        </el-tabs>
+      </div>
     </div>
   </div>
 </template>
 
 <style lang="scss" scoped>
-.knowledge-detail {
-  background: #fff;
-  padding: 16px;
-  border-radius: 4px;
-}
-
-.detail-header {
-  margin-bottom: 16px;
-
-  h2 {
-    margin: 0 0 8px;
-    font-size: 20px;
-  }
-
-  .description {
-    margin: 0;
-    color: #606266;
-    font-size: 14px;
-  }
-}
-
-.back-button { margin: 0 0 12px -4px; color: #4d6b83; }
-
-.detail-tabs {
-  margin-top: 8px;
+.knowledge-detail { min-height: 100%; }
+.back-button { display: inline-flex; align-items: center; gap: 7px; margin: 0 0 16px; padding: 5px 0; color: var(--docbase-muted); font: inherit; font-size: 13px; background: none; border: 0; cursor: pointer; }
+.back-button:hover { color: var(--docbase-accent); }
+.detail-header { position: relative; display: flex; align-items: center; gap: 22px; min-height: 160px; padding: 30px 34px; overflow: hidden; color: var(--docbase-ink); background: linear-gradient(110deg, var(--docbase-accent-soft), var(--docbase-surface)); border: 1px solid var(--docbase-line); border-radius: var(--docbase-radius-lg); box-shadow: var(--docbase-shadow-sm); }
+.detail-header::after { position: absolute; top: 0; bottom: 0; left: 0; width: 3px; content: ""; background: var(--docbase-amber); }
+.detail-brand { width: 58px; height: 58px; display: flex; align-items: center; justify-content: center; flex: 0 0 58px; color: var(--docbase-accent); font-size: 25px; background: var(--docbase-surface); border: 1px solid var(--docbase-line); border-radius: 12px; }
+.detail-title { position: relative; z-index: 1; min-width: 0; }
+.detail-eyebrow { color: var(--docbase-amber); font-size: 12px; font-weight: 700; letter-spacing: 1.8px; }
+.detail-title__row { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
+.detail-title h1 { margin: 0; overflow: hidden; font-size: 26px; font-weight: 700; letter-spacing: -.7px; text-overflow: ellipsis; white-space: nowrap; }
+.description { max-width: 680px; margin: 10px 0 0; color: var(--docbase-text); font-size: 13px; line-height: 1.7; }
+.detail-id { position: absolute; top: 25px; right: 28px; color: var(--docbase-muted); font-family: var(--docbase-font-mono); font-size: 12px; letter-spacing: 1px; }
+.detail-workspace { margin-top: 18px; padding: 4px 26px 24px; background: var(--docbase-surface); border: 1px solid var(--docbase-line-soft); border-radius: var(--docbase-radius-lg); box-shadow: var(--docbase-shadow-sm); }
+.detail-tabs { margin-top: 0; }
+.detail-tabs :deep(.el-tabs__header) { margin-bottom: 25px; }
+.detail-tabs :deep(.el-tabs__nav-wrap::after) { height: 1px; background: var(--docbase-line-soft); }
+.detail-tabs :deep(.el-tabs__item) { height: 55px; padding: 0 22px; color: var(--docbase-muted); font-size: 13px; }
+.detail-tabs :deep(.el-tabs__item:first-child) { padding-left: 3px; padding-right: 27px; }
+.detail-tabs :deep(.el-tabs__item.is-active) { color: var(--docbase-accent); font-weight: 650; }
+.detail-tabs :deep(.el-tabs__active-bar) { height: 3px; border-radius: 3px 3px 0 0; }
+@media (max-width: 700px) {
+  .detail-header { align-items: flex-start; min-height: 200px; padding: 25px 22px; }
+  .detail-brand { width: 48px; height: 48px; flex-basis: 48px; font-size: 21px; border-radius: 14px; }
+  .detail-title h1 { font-size: 22px; }
+  .detail-title__row { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .detail-id { display: none; }
+  .detail-workspace { padding: 3px 17px 18px; }
+  .detail-tabs :deep(.el-tabs__item) { padding: 0 12px; }
+  .detail-tabs :deep(.el-tabs__item:first-child) { padding-right: 12px; }
 }
 </style>

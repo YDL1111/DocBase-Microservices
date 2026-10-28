@@ -46,13 +46,14 @@ function mountHistory(messages: ReturnType<typeof message>[]) {
 }
 
 describe("chat message history", () => {
-  it("renders numeric role and all message statuses as safe text", () => {
+  it("renders numeric role and non-completed message statuses as safe text", () => {
     const wrapper = mountHistory([message(1, 1), message(2, 2), message(3, 3), message(2, 4)]);
     expect(wrapper.text()).toContain("用户");
     expect(wrapper.text()).toContain("助手");
     expect(wrapper.text()).toContain("系统");
     expect(wrapper.text()).toContain("生成中");
-    expect(wrapper.text()).toContain("已完成");
+    // 已完成是正常终态，不再渲染状态标签（降噪），但其余异常/中间态必须可见
+    expect(wrapper.text()).not.toContain("已完成");
     expect(wrapper.text()).toContain("失败");
     expect(wrapper.text()).toContain("已取消");
   });

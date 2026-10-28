@@ -11,7 +11,7 @@ vi.mock("@/api/knowledge", () => ({
   reingestDocument: (...args: unknown[]) => reingestDocumentMock(...args),
   getDocumentContent: (...args: unknown[]) => getDocumentContentMock(...args)
 }));
-vi.mock("@/utils/message", () => ({ message: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
+vi.mock("@/utils/message", () => ({ message: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn(), confirmDanger: vi.fn().mockResolvedValue(undefined) } }));
 
 import DetailDocuments from "./detail-documents.vue";
 import { useKnowledgeStoreHook } from "@/store/modules/knowledge";

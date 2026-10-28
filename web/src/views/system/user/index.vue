@@ -15,10 +15,9 @@ import { ElMessageBox } from "element-plus";
 import {
   Plus,
   Edit,
-  Delete,
   Refresh,
   View,
-  Key
+  ArrowDown
 } from "@element-plus/icons-vue";
 import {
   listUsers,
@@ -52,6 +51,7 @@ const organizations = ref<SysOrganization[]>([]);
 const availableRoles = ref<import('@/api/types').SysRole[]>([]);
 const userStore = useUserStoreHook();
 const canAssignRoles = computed(() => userStore.hasPermission('system:user:assign-role'));
+const hasAuth = (perm: string) => userStore.hasPermission(perm);
 const optionsReady = ref(false);
 const roleSaving = ref(false);
 const rolesReady = ref(false);
@@ -422,6 +422,14 @@ async function handleDelete(user: SysUser) {
   }
 }
 
+/** "更多"下拉菜单命令分发 */
+function handleRowCommand(command: string, user: SysUser) {
+  if (command === "toggle-status") handleStatusChange(user);
+  else if (command === "reset-password") openResetDialog(user);
+  else if (command === "roles") openRolesDialog(user);
+  else if (command === "delete") handleDelete(user);
+}
+
 /* ========================= 重置密码 ========================= */
 
 function openResetDialog(user: SysUser) {
@@ -505,21 +513,25 @@ onMounted(() => {
 </script>
 
 <template>
-  <div v-auth="'system:user:list'" class="user-manage">
+  <div v-auth="'system:user:list'" class="page-card user-manage">
     <!-- 工具栏 -->
-    <div class="toolbar">
-      <h2>用户管理</h2>
-      <div class="toolbar-actions">
+    <div class="page-toolbar">
+      <div class="page-toolbar__title">
+        <h2>用户管理</h2>
+        <p>维护系统账号、组织归属与角色分配</p>
+      </div>
+      <div class="page-toolbar__actions">
         <el-input
           v-model="filterUsername"
-          placeholder="用户名"
+          placeholder="按用户名搜索"
           clearable
           style="width: 200px"
           @keyup.enter="handleSearch"
+          @clear="handleSearch"
         />
         <el-button type="primary" @click="handleSearch">查询</el-button>
         <el-button @click="handleResetFilter">重置</el-button>
-        <el-button :icon="Refresh" circle aria-label="刷新用户列表" @click="fetchUsers('user')" />
+        <el-button :icon="Refresh" circle aria-label="刷新用户列表" title="刷新" @click="fetchUsers('user')" />
         <el-button
           v-auth="'system:user:create'"
           type="primary"
@@ -534,8 +546,18 @@ onMounted(() => {
     <!-- 空状态 -->
     <el-empty
       v-if="!loading && users.length === 0"
-      description="暂无用户"
-    />
+      :description="filterUsername ? `没有找到用户名包含“${filterUsername}”的用户` : '暂无用户'"
+    >
+      <el-button
+        v-if="!filterUsername"
+        v-auth="'system:user:create'"
+        type="primary"
+        :icon="Plus"
+        @click="openCreateDialog"
+      >
+        新建第一个用户
+      </el-button>
+    </el-empty>
 
     <!-- 用户列表 -->
     <el-table v-loading="loading" :data="users" stripe style="width: 100%">
@@ -554,7 +576,7 @@ onMounted(() => {
         </template>
       </el-table-column>
       <el-table-column prop="createTime" label="创建时间" width="180" />
-      <el-table-column label="操作" width="360" fixed="right">
+      <el-table-column label="操作" width="200" fixed="right">
         <template #default="scope">
           <template v-if="scope?.row">
             <el-button
@@ -575,43 +597,49 @@ onMounted(() => {
             >
               编辑
             </el-button>
-            <el-button
-              v-auth="'system:user:status'"
-              link
-              :type="scope.row.status === UserStatus.ENABLED ? 'warning' : 'success'"
-              :disabled="operatingIds.has(scope.row.userId)"
-              @click="handleStatusChange(scope.row)"
+            <el-dropdown
+              trigger="click"
+              @command="(cmd: string) => handleRowCommand(cmd, scope.row)"
             >
-              {{ scope.row.status === UserStatus.ENABLED ? "停用" : "启用" }}
-            </el-button>
-            <el-button
-              v-auth="'system:user:reset-password'"
-              link
-              type="primary"
-              :icon="Key"
-              :disabled="operatingIds.has(scope.row.userId)"
-              @click="openResetDialog(scope.row)"
-            >
-              重置密码
-            </el-button>
-            <el-button
-              v-auth="'system:user:list'"
-              link
-              type="primary"
-              @click="openRolesDialog(scope.row)"
-            >
-              {{ canAssignRoles ? "分配角色" : "已分配角色" }}
-            </el-button>
-            <el-button
-              v-auth="'system:user:delete'"
-              link
-              type="danger"
-              :icon="Delete"
-              :disabled="operatingIds.has(scope.row.userId)"
-              @click="handleDelete(scope.row)"
-            >
-              删除
-            </el-button>
+              <el-button
+                link
+                type="primary"
+                :disabled="operatingIds.has(scope.row.userId)"
+              >
+                更多<el-icon><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item
+                    v-if="hasAuth('system:user:status')"
+                    command="toggle-status"
+                    :disabled="operatingIds.has(scope.row.userId)"
+                  >
+                    {{ scope.row.status === UserStatus.ENABLED ? "停用账号" : "启用账号" }}
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    v-if="hasAuth('system:user:reset-password')"
+                    command="reset-password"
+                  >
+                    重置密码
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    v-if="hasAuth('system:user:list')"
+                    command="roles"
+                  >
+                    {{ canAssignRoles ? "分配角色" : "已分配角色" }}
+                  </el-dropdown-item>
+                  <el-dropdown-item
+                    v-if="hasAuth('system:user:delete')"
+                    command="delete"
+                    divided
+                    class="dropdown-item-danger"
+                  >
+                    删除用户
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </template>
       </el-table-column>
@@ -620,7 +648,7 @@ onMounted(() => {
     <!-- 分页 -->
     <el-pagination
       v-if="total > 0"
-      class="pagination"
+      class="table-pagination"
       layout="total, sizes, prev, pager, next, jumper"
       :total="total"
       :current-page="pagination.current"
@@ -793,30 +821,6 @@ onMounted(() => {
 
 <style lang="scss" scoped>
 .user-manage {
-  background: #fff;
-  padding: 16px;
-  border-radius: 4px;
-}
-
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-
-  h2 {
-    margin: 0;
-    font-size: 18px;
-  }
-}
-
-.toolbar-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.pagination {
-  margin-top: 16px;
-  justify-content: flex-end;
+  min-height: 320px;
 }
 </style>

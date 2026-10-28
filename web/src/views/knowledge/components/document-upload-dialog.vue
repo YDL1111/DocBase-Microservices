@@ -277,5 +277,5 @@ watch([() => form.title, () => form.folderId, () => form.visibility, () => form.
 
 <style lang="scss" scoped>
 .visibility-note, .progress-note { margin: 8px 0 0; color: var(--el-text-color-secondary); font-size: 12px; line-height: 1.5; }
-.progress-note { margin-left: 88px; }
+.progress-note { margin-left: 0; }
 </style>

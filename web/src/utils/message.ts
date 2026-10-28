@@ -25,6 +25,16 @@ const message = {
       type: "warning",
       ...options
     });
+  },
+  /** 危险操作确认（删除/不可恢复类）：红色确认按钮，语义与视觉一致 */
+  confirmDanger(msg: string, title = "删除确认", options?: ElMessageBoxOptions) {
+    return ElMessageBox.confirm(sanitize(msg), title, {
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+      confirmButtonClass: "el-button--danger",
+      type: "error",
+      ...options
+    });
   }
 };
 

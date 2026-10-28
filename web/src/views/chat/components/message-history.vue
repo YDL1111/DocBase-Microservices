@@ -106,9 +106,9 @@ const inputLocked = computed(() => props.streaming || props.cancelling || props.
     </div>
     <div v-else class="message-history__items">
       <article v-for="item in visibleMessages" :key="item.id" :class="['message', roleClass(item.role)]">
-        <div class="message__avatar">{{ item.role === ChatMessageRole.USER ? '你' : item.role === ChatMessageRole.ASSISTANT ? 'AI' : '!' }}</div>
+        <div class="message__avatar" aria-hidden="true">{{ item.role === ChatMessageRole.USER ? '你' : item.role === ChatMessageRole.ASSISTANT ? 'AI' : '!' }}</div>
         <div class="message__body">
-          <header><strong>{{ chatMessageRoleLabel(item.role) }}</strong><el-tag size="small" :type="statusType(item.status)">{{ chatMessageStatusLabel(item.status) }}</el-tag><time>{{ item.createdAt }}</time></header>
+          <header><strong>{{ chatMessageRoleLabel(item.role) }}</strong><el-tag v-if="item.status !== ChatMessageStatus.COMPLETED" size="small" :type="statusType(item.status)">{{ chatMessageStatusLabel(item.status) }}</el-tag><time>{{ item.createdAt }}</time></header>
           <div class="message__content">
             <div
               v-if="item.content && item.role === ChatMessageRole.ASSISTANT"
@@ -166,7 +166,7 @@ const inputLocked = computed(() => props.streaming || props.cancelling || props.
   min-width: 0;
   padding: 18px 24px 12px;
   overflow: auto;
-  background: #f7fafe;
+  background: var(--docbase-bg);
 }
 
 .message-history__toolbar {
@@ -179,7 +179,7 @@ const inputLocked = computed(() => props.streaming || props.cancelling || props.
 }
 
 .message-history__status {
-  color: #a66a16;
+  color: var(--docbase-amber-strong);
   font-size: 12px;
 }
 
@@ -196,7 +196,7 @@ const inputLocked = computed(() => props.streaming || props.cancelling || props.
   flex-direction: column;
   margin: auto;
   padding: 40px 20px;
-  color: #526f87;
+  color: var(--docbase-muted);
   text-align: center;
 }
 
@@ -204,32 +204,32 @@ const inputLocked = computed(() => props.streaming || props.cancelling || props.
   width: 54px;
   height: 54px;
   margin-bottom: 17px;
-  color: #256fa8;
+  color: var(--docbase-amber);
   font-size: 25px;
-  background: #deedf8;
-  border-radius: 8px;
+  background: var(--docbase-accent-soft);
+  border-radius: 12px;
 }
 
 .message-history__welcome > span {
-  color: #66849d;
-  font-size: 10px;
+  color: var(--docbase-subtle);
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
 }
 
 .message-history__welcome h2 {
   margin: 8px 0 9px;
-  color: #173956;
+  color: var(--docbase-ink);
   font-size: 22px;
-  letter-spacing: 0;
+  letter-spacing: -0.4px;
 }
 
 .message-history__welcome p {
   max-width: 470px;
   margin: 0;
-  color: #70879a;
-  font-size: 13px;
-  line-height: 1.75;
+  color: var(--docbase-muted);
+  font-size: 15px;
+  line-height: 1.8;
 }
 
 .message-history__welcome.compact {
@@ -259,19 +259,20 @@ const inputLocked = computed(() => props.streaming || props.cancelling || props.
   align-items: center;
   justify-content: center;
   flex: 0 0 31px;
-  color: #fff;
+  color: #f4f1e9;
   font-size: 11px;
   font-weight: 700;
-  background: #2b75aa;
-  border-radius: 7px;
+  background: var(--docbase-accent);
+  border-radius: 8px;
 }
 
 .message.user .message__avatar {
-  background: #627f96;
+  color: var(--docbase-accent);
+  background: var(--docbase-surface-soft);
 }
 
 .message.system .message__avatar {
-  background: #9b7a49;
+  background: var(--docbase-amber);
 }
 
 .message__body {
@@ -293,21 +294,21 @@ header {
 }
 
 header strong {
-  color: #35556e;
+  color: var(--docbase-text);
   font-size: 12px;
 }
 
 time {
-  color: #94a4b1;
-  font-size: 10px;
+  color: var(--docbase-subtle);
+  font-size: 12px;
 }
 
 .message__content {
   padding: 11px 14px;
-  color: #253e52;
-  background: #fff;
-  border: 1px solid #dee8ef;
-  border-radius: 4px 8px 8px 8px;
+  color: var(--docbase-text);
+  background: var(--docbase-surface);
+  border: 1px solid var(--docbase-line-soft);
+  border-radius: 4px 10px 10px 10px;
 }
 
 .message__actions {
@@ -326,17 +327,17 @@ time {
   min-width: 48px;
   margin-left: 4px;
   padding: 3px 7px;
-  color: #356c9a;
+  color: var(--docbase-accent);
   font-size: 11px;
   text-align: center;
-  background: #edf5fc;
-  border-radius: 4px;
+  background: var(--docbase-accent-soft);
+  border-radius: 5px;
 }
 
 .message__references {
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid #e2ebf2;
+  border-top: 1px solid var(--docbase-line-soft);
 }
 
 .message__references-toggle {
@@ -344,7 +345,7 @@ time {
   align-items: center;
   gap: 5px;
   padding: 0;
-  color: #5c7489;
+  color: var(--docbase-muted);
   font: inherit;
   font-size: 12px;
   background: transparent;
@@ -354,7 +355,7 @@ time {
 
 .message__references-toggle span {
   margin-left: 4px;
-  color: #256fa8;
+  color: var(--docbase-accent);
   font-weight: 600;
 }
 
@@ -367,29 +368,29 @@ time {
 }
 
 .message.user .message__content {
-  color: #fff;
-  background: #2b75aa;
-  border-color: #2b75aa;
-  border-radius: 8px 4px 8px 8px;
+  color: #164b38;
+  background: var(--docbase-accent-soft);
+  border-color: var(--docbase-accent);
+  border-radius: 10px 4px 10px 10px;
 }
 
 .message.system .message__content {
-  background: #fffaf1;
-  border-color: #eee1cb;
+  background: var(--docbase-amber-soft);
+  border-color: #eadfc2;
 }
 
 p {
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 14px;
-  line-height: 1.75;
+  font-size: 15px;
+  line-height: 1.8;
   white-space: pre-wrap;
 }
 
 .message__markdown {
   overflow-wrap: anywhere;
-  font-size: 14px;
-  line-height: 1.75;
+  font-size: 15px;
+  line-height: 1.8;
 }
 
 .message__markdown :deep(p),
@@ -415,18 +416,18 @@ p {
 
 .message__markdown :deep(code) {
   padding: 2px 5px;
-  color: #245878;
-  background: #edf4f8;
+  color: var(--docbase-accent-hover);
+  background: var(--docbase-accent-soft);
   border-radius: 4px;
-  font-family: Consolas, "SFMono-Regular", monospace;
+  font-family: var(--docbase-font-mono);
   font-size: 0.92em;
 }
 
 .message__markdown :deep(pre) {
   overflow: auto;
   padding: 12px;
-  background: #f2f6f9;
-  border: 1px solid #dce7ee;
+  background: var(--docbase-surface-soft);
+  border: 1px solid var(--docbase-line-soft);
   border-radius: 6px;
 }
 
@@ -437,26 +438,26 @@ p {
 
 .message__markdown :deep(blockquote) {
   padding-left: 12px;
-  color: #587286;
-  border-left: 3px solid #9fc2da;
+  color: var(--docbase-muted);
+  border-left: 3px solid var(--docbase-amber);
 }
 
 .message__markdown :deep(a) {
-  color: #176fa8;
+  color: var(--docbase-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .message__error {
-  color: #c64a4a;
+  color: var(--docbase-danger);
 }
 
 .message__generating {
-  color: #256fa8;
+  color: var(--docbase-accent);
 }
 
 .message__interrupted {
-  color: #778c9d;
+  color: var(--docbase-subtle);
 }
 
 .message__sources {
@@ -465,15 +466,16 @@ p {
   gap: 6px;
   margin: 8px 0 0;
   padding: 0;
-  color: #52728a;
+  color: var(--docbase-text);
   font-size: 11px;
   list-style: none;
 }
 
 .message__sources li {
   padding: 4px 7px;
-  background: #edf5fa;
-  border-radius: 4px;
+  background: var(--docbase-surface-soft);
+  border: 1px solid var(--docbase-line-soft);
+  border-radius: 5px;
 }
 
 @media (max-width: 640px) {

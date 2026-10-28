@@ -59,9 +59,9 @@ watch(() => props.modelValue, visible => {
 
 <style scoped>
 .binding-intro { margin: -2px 0 18px; }
-.binding-intro strong { color: #173956; font-size: 15px; }
-.binding-intro p { margin: 6px 0 0; color: #71869a; font-size: 13px; line-height: 1.7; }
+.binding-intro strong { color: var(--docbase-ink); font-size: 15px; }
+.binding-intro p { margin: 6px 0 0; color: var(--docbase-muted); font-size: 13px; line-height: 1.7; }
 .binding-option { display: flex; justify-content: space-between; gap: 16px; }
-.binding-option small { color: #9aabba; }
-.general-hint { margin-top: 12px; padding: 10px 12px; color: #547087; font-size: 12px; background: #f3f7fa; border-radius: 6px; }
+.binding-option small { color: var(--docbase-subtle); }
+.general-hint { margin-top: 12px; padding: 10px 12px; color: var(--docbase-amber-strong); font-size: 12px; background: var(--docbase-amber-soft); border-radius: 6px; }
 </style>
