@@ -391,6 +391,17 @@ public class KnowledgeDocumentService {
 
     public List<Long> findVisibleDocumentIds(Long knowledgeBaseId, Long userId,
                                              Long organizationId, boolean isAdmin) {
+        return findVisibleDocumentIds(knowledgeBaseId, userId, organizationId, isAdmin, false);
+    }
+
+    /** Search must not silently omit documents when the bounded RAG scope is exceeded. */
+    public List<Long> findSearchableDocumentIds(Long knowledgeBaseId, Long userId,
+                                               Long organizationId, boolean isAdmin) {
+        return findVisibleDocumentIds(knowledgeBaseId, userId, organizationId, isAdmin, true);
+    }
+
+    private List<Long> findVisibleDocumentIds(Long knowledgeBaseId, Long userId,
+                                               Long organizationId, boolean isAdmin, boolean requireComplete) {
         // Verify the knowledge base exists and is enabled. Admins cannot bypass existence.
         KnowledgeBase base = permissionService.requireActiveKnowledgeBase(knowledgeBaseId);
         if (base.getStatus() == null || base.getStatus() != 1) {
@@ -427,6 +438,9 @@ public class KnowledgeDocumentService {
 
         boolean truncated = rows.size() > KnowledgeDocumentConstants.VISIBLE_DOC_IDS_LIMIT;
         if (truncated) {
+            if (requireComplete) {
+                throw new BusinessException("SEARCH_SCOPE_TOO_LARGE", "当前知识库可检索文档超过 1000 份，暂不支持完整检索，请使用较小的知识库");
+            }
             log.warn("Visible document ids for knowledge base {} capped at {} (requested for user {})",
                     knowledgeBaseId, KnowledgeDocumentConstants.VISIBLE_DOC_IDS_LIMIT, userId);
             rows = rows.subList(0, KnowledgeDocumentConstants.VISIBLE_DOC_IDS_LIMIT);

@@ -237,4 +237,14 @@ class VisibleDocumentIdsTest {
         assertThat(ids).containsExactlyInAnyOrder(pub, priv);
         assertThat(ids).doesNotContain(dept);
     }
+    @Test
+    void searchRejectsTruncatedScopeInsteadOfSilentlyOmittingDocuments() {
+        for (int i = 0; i <= KnowledgeDocumentConstants.VISIBLE_DOC_IDS_LIMIT; i++) {
+            publishDocument("Search boundary " + i, KnowledgeDocumentConstants.VISIBILITY_PUBLIC, 1L);
+        }
+        assertThatThrownBy(() -> documentService.findSearchableDocumentIds(knowledgeBaseId, 1L, null, true))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code").isEqualTo("SEARCH_SCOPE_TOO_LARGE");
+    }
+
 }

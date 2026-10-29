@@ -242,3 +242,20 @@ export function removeMember(
     `/api/knowledge/bases/${knowledgeBaseId}/members/${userId}`
   );
 }
+
+/** Original passages from documents authorized by the server. This is a top-K result list. */
+export interface KnowledgeSearchHit {
+  documentId: number;
+  title: string;
+  filename: string;
+  content: string;
+  page?: number | null;
+  sheet?: string | null;
+  slide?: number | null;
+  heading?: string | null;
+}
+export function searchKnowledge(knowledgeBaseId: number, query: string, signal?: AbortSignal): Promise<KnowledgeSearchHit[]> {
+  return http.post('/api/knowledge/search', { knowledgeBaseId, query }, {
+    timeout: 75000, signal, skipGlobalErrorMessage: true
+  });
+}

@@ -39,7 +39,7 @@ const today = new Intl.DateTimeFormat("zh-CN", {
 }).format(new Date());
 
 const entries: WorkspaceEntry[] = [
-  { title: "知识检索", meta: "SEARCH PREVIEW", description: "关键词检索与原文定位 · 前端预览", path: "/search", icon: Search, accent: "#175e4c", routerName: "KnowledgeSearchPreview", area: "business" },
+  { title: "知识检索", meta: "KNOWLEDGE SEARCH", description: "语义检索 · 文档原文片段", path: "/search", icon: Search, accent: "#175e4c", routerName: "KnowledgeSearchPreview", area: "business" },
   { title: "文档管理", meta: "KNOWLEDGE", description: "组织文档、目录与协作成员", path: "/knowledge", icon: Collection, accent: "#175e4c", routerName: "KnowledgeList", area: "business" },
   { title: "入库任务", meta: "PIPELINE", description: "追踪解析、索引与处理结果", path: "/ingest/tasks", icon: UploadFilled, accent: "#6b6f4a", routerName: "IngestTask", area: "business" },
   { title: "智能问答", meta: "ASSISTANT", description: "从企业知识中获得可追溯回答", path: "/ai/chat", icon: ChatDotRound, accent: "#175e4c", routerName: "AiChat", area: "business" },

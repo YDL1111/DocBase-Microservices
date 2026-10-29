@@ -110,7 +110,8 @@ class RAGService:
             visible_document_ids,
             max(settings.RETRIEVAL_CANDIDATE_K, result_limit * 3),
         )
-        chunks = self._rank_candidates(candidates, result_limit)
+        from app.services.search_quality import rank_search
+        chunks = rank_search(candidates, query, result_limit, settings.MIN_RELEVANCE_SCORE)
 
         results = []
         for candidate in chunks:
